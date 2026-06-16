@@ -42,17 +42,31 @@ export default function NutrientBar({
   const status: NutrientStatus = !enforce && hasData ? "ok" : rawStatus;
   const color = COLORS[status];
 
+  // Short word + hover tooltip so the colour/⚠️ explains itself.
+  const targetStr = `${fmt(target, unit)} ${unit}`;
+  const statusWord = status === "below" ? "low" : status === "over" ? "over" : "";
+  const tip =
+    status === "below"
+      ? `Below your daily target (${targetStr}) — aim for more today`
+      : status === "over"
+      ? `Over your daily limit (${targetStr})`
+      : status === "nodata"
+      ? "No data for this nutrient in the food database"
+      : direction === "limit"
+      ? `Under your daily limit (${targetStr}) — good`
+      : `Daily target reached (${targetStr})`;
+
   const pct = target > 0 ? (total / target) * 100 : 0;
   const foodPct = target > 0 ? Math.min(100, ((food ?? 0) / target) * 100) : 0;
   const suppPct = target > 0 ? Math.min(100 - foodPct, (supplement / target) * 100) : 0;
 
   return (
-    <div className={compact ? "py-1.5" : "py-1"}>
+    <div className={compact ? "py-1.5" : "py-1"} title={tip}>
       <div className="flex items-baseline justify-between mb-1.5">
         <span className="text-sm font-medium flex items-center gap-1.5">
           {label}
           {(status === "below" || status === "over") && (
-            <AlertTriangle size={13} style={{ color: "var(--warning)" }} />
+            <AlertTriangle size={13} style={{ color: "var(--warning)" }} aria-label={tip} />
           )}
         </span>
         {hasData ? (
@@ -64,6 +78,9 @@ export default function NutrientBar({
             <span className="ml-1.5" style={{ color }}>
               {Math.round(pct)}%
             </span>
+            {statusWord && (
+              <span className="ml-1" style={{ color: "var(--warning)" }}>· {statusWord}</span>
+            )}
           </span>
         ) : (
           <span
