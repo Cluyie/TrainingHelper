@@ -75,8 +75,8 @@ ALTER TABLE running_sessions ADD COLUMN IF NOT EXISTS optional boolean NOT NULL 
 ```
 
 ## Setup from scratch
-1. Supabase SQL editor: run `supabase/schema.sql` + the 3 ALTER statements above
-2. `.env.local.example` → `.env.local` (fill SUPABASE_URL, SUPABASE_SECRET_KEY, AUTH_PIN, AUTH_SECRET)
+1. Supabase SQL editor: run `supabase/schema.sql` + the 3 ALTER statements above, then `supabase/nutrition-schema.sql`
+2. `.env.local.example` → `.env.local` (fill SUPABASE_URL, SUPABASE_SECRET_KEY, AUTH_PIN, AUTH_SECRET, FDC_API_KEY)
 3. `npm install && npm run dev`
 4. `POST /api/seed` with header `x-seed-secret: 1811`
 5. Visit app → PIN 1811 → Settings → pick days → Save & Generate Program
@@ -91,6 +91,33 @@ ALTER TABLE running_sessions ADD COLUMN IF NOT EXISTS optional boolean NOT NULL 
 - Deload/easier weeks: 4, 8, 12 (and reduced-VO2 at 11, 15).
 - Session types: `easy` | `long` | `interval` | `unstructured`. Optional sessions
   (`optional` column) never block week completion in the UI.
+
+## Nutrition tracker
+6th bottom-nav tab ("Food", `/nutrition`). Log exact food quantities in grams via the
+**USDA FoodData Central** API (needs `FDC_API_KEY`). No recipes.
+
+- **Snapshotting:** on log, all ~25 nutrients are computed per-100g, scaled to the gram
+  quantity server-side, and stored as a JSONB snapshot on `food_log_entries.nutrients`.
+  Daily totals = a simple sum; history never shifts if USDA data changes.
+- **Registry:** `src/lib/nutrients.ts` is the single source of truth (label, unit, tier,
+  group, USDA nutrient numbers, default target, floor/limit direction). Tier 1 = macros
+  (calories, protein, fat, net carbs, fiber, refined carbs). Tier 2 = minerals, vitamins,
+  functional (omega-3). No Tier 3.
+- **Derived:** net carbs = carbs − fiber. Refined carbs = heuristic (sugars + a fraction of
+  non-sugar starch weighted by processing/low-fiber) in `src/lib/usda.ts` → `computeRefined`.
+- **Net-carb hard limit:** toggle + value in `/nutrition/settings` (default 50g, on). Stored
+  as a `nutrient_targets` row with `enabled`.
+- **Supplements:** `/nutrition/settings`. Added to totals but always shown separately from
+  food (NutrientBar renders a food + supplement split).
+- **Data gaps:** Iodine, Vitamin K2, EPA/DHA are sparse in USDA → shown with a "no data"
+  badge when null (no curated fallback table, by design).
+- **Targets:** registry defaults merged with override rows by `/api/nutrition/targets`; a row
+  is only written when a target is edited (empty table still yields sensible defaults).
+- **Views:** Day (Tier 1 cards + collapsible Tier 2) and Week (7-day avg, days below/over,
+  trend arrow, deficiencies highlighted). Aggregation in `src/lib/nutrition-client.ts`.
+- Client helpers (`nutrients.ts`, `nutrition-client.ts`) are pure — safe to import in client
+  components. `usda.ts` imports Supabase → server-only.
+- **Caching:** `food_cache` table read-through caches USDA detail lookups.
 
 ## Known issues
 - Program generator matches exercises by name string — brittle, should use stable IDs

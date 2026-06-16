@@ -3,9 +3,13 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Dumbbell, Wind, PersonStanding, ChevronRight, Flame, Calendar, Settings, AlertTriangle } from "lucide-react";
-import type { PlannedWorkout, UserSettings, RunningSession } from "@/types";
+import { Dumbbell, Wind, PersonStanding, ChevronRight, Flame, Calendar, Settings, AlertTriangle, Utensils } from "lucide-react";
+import type { PlannedWorkout, UserSettings, RunningSession, NutrientTarget } from "@/types";
 import { getRunSchedulingHint } from "@/lib/run-schedule";
+import { foodTotals, supplementTotals, targetMap, todayISO } from "@/lib/nutrition-client";
+import { NUTRIENT_MAP } from "@/lib/nutrients";
+import NutrientBar from "@/components/nutrition/NutrientBar";
+import type { NutrientSnapshot } from "@/types";
 
 const DAY_NAMES: Record<string, string> = {
   monday: "Monday", tuesday: "Tuesday", wednesday: "Wednesday",
@@ -21,6 +25,12 @@ export default function Dashboard() {
   const [nextRun, setNextRun] = useState<RunningSession | null>(null);
   const [vo2ThisWeek, setVo2ThisWeek] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  // Today's nutrition (own effect so a missing FDC_API_KEY never blocks the dashboard)
+  const [nutFood, setNutFood] = useState<NutrientSnapshot>({});
+  const [nutSupp, setNutSupp] = useState<Record<string, number>>({});
+  const [nutTargets, setNutTargets] = useState<NutrientTarget[]>([]);
+  const [nutHasEntries, setNutHasEntries] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -47,6 +57,21 @@ export default function Dashboard() {
       setLoading(false);
     });
   }, [router]);
+
+  useEffect(() => {
+    const today = todayISO();
+    Promise.all([
+      fetch(`/api/nutrition/log?date=${today}`).then((r) => r.json()).catch(() => []),
+      fetch("/api/nutrition/targets").then((r) => r.json()).catch(() => []),
+      fetch("/api/nutrition/supplements").then((r) => r.json()).catch(() => []),
+    ]).then(([entries, targets, supps]) => {
+      const e = Array.isArray(entries) ? entries : [];
+      setNutHasEntries(e.length > 0);
+      setNutFood(foodTotals(e));
+      setNutTargets(Array.isArray(targets) ? targets : []);
+      setNutSupp(supplementTotals(Array.isArray(supps) ? supps : []));
+    });
+  }, []);
 
   const todayKey = TODAY_KEYS[new Date().getDay()];
   const todayWorkout = workouts.find((w) => w.day_of_week === todayKey);
@@ -127,6 +152,16 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Today's nutrition */}
+      <NutritionCard
+        food={nutFood}
+        supp={nutSupp}
+        targets={nutTargets}
+        hasEntries={nutHasEntries}
+        trainingDay={!!todayWorkout}
+        heavyLegs={todayWorkout?.label?.includes("Squat") ?? false}
+      />
+
       {/* This week overview */}
       <div
         className="rounded-2xl p-4"
@@ -164,6 +199,96 @@ export default function Dashboard() {
         <QuickCard href="/settings" icon={<span className="text-xl">⚙️</span>} label="Settings" />
       </div>
     </div>
+  );
+}
+
+function NutritionCard({
+  food, supp, targets, hasEntries, trainingDay, heavyLegs,
+}: {
+  food: NutrientSnapshot;
+  supp: Record<string, number>;
+  targets: NutrientTarget[];
+  hasEntries: boolean;
+  trainingDay: boolean;
+  heavyLegs: boolean;
+}) {
+  const tMap = targetMap(targets);
+  // The three most behavior-relevant Tier 1 metrics for an at-a-glance card.
+  const keys = ["calories", "protein_g", "net_carbs_g"];
+
+  const proteinDef = NUTRIENT_MAP["protein_g"];
+  const proteinTarget = tMap["protein_g"]?.target_amount ?? proteinDef.defaultTarget;
+  const proteinTotal = (food["protein_g"] ?? 0) + (supp["protein_g"] ?? 0);
+  const proteinLeft = Math.max(0, Math.round(proteinTarget - proteinTotal));
+
+  return (
+    <Link
+      href="/nutrition"
+      className="block rounded-2xl p-4 transition-all active:scale-98"
+      style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
+    >
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Utensils size={16} style={{ color: "var(--accent)" }} />
+          <span className="text-sm font-semibold">Today&apos;s Nutrition</span>
+        </div>
+        <div className="flex items-center gap-2">
+          {trainingDay && (
+            <span className="flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full"
+              style={{ background: "var(--accent-dim)", color: "var(--accent)" }}>
+              <Dumbbell size={11} /> Training day
+            </span>
+          )}
+          <ChevronRight size={16} style={{ color: "var(--muted)" }} />
+        </div>
+      </div>
+
+      {hasEntries ? (
+        <div className="space-y-1">
+          {keys.map((key) => {
+            const def = NUTRIENT_MAP[key];
+            const t = tMap[key];
+            const enforce = key === "net_carbs_g" ? t?.enabled !== false : true;
+            return (
+              <NutrientBar
+                key={key}
+                label={def.label}
+                unit={def.unit}
+                food={food[key] ?? null}
+                supplement={supp[key] ?? 0}
+                target={t?.target_amount ?? def.defaultTarget}
+                direction={t?.direction ?? def.direction}
+                enforce={enforce}
+                compact
+              />
+            );
+          })}
+        </div>
+      ) : (
+        <p className="text-sm" style={{ color: "var(--muted)" }}>
+          No food logged yet today — tap to start tracking.
+        </p>
+      )}
+
+      {/* Protein-vs-training nudge */}
+      {trainingDay && (
+        <div className="mt-3 pt-3 flex gap-2" style={{ borderTop: "1px solid var(--border)" }}>
+          <Dumbbell size={14} className="mt-0.5 shrink-0" style={{ color: "var(--accent)" }} />
+          <p className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
+            {heavyLegs ? (
+              <><span className="font-semibold" style={{ color: "var(--accent)" }}>Heavy legs today.</span>{" "}
+                Protein and enough carbs aid recovery — </>
+            ) : (
+              <><span className="font-semibold" style={{ color: "var(--accent)" }}>Strength day.</span>{" "}
+                Prioritise protein — </>
+            )}
+            {proteinLeft > 0
+              ? <><span className="font-semibold" style={{ color: "var(--foreground)" }}>{proteinLeft} g</span> to your target.</>
+              : <>target hit. 💪</>}
+          </p>
+        </div>
+      )}
+    </Link>
   );
 }
 

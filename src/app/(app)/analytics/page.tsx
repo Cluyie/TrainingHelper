@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BarChart2, TrendingUp, Wind, Calendar } from "lucide-react";
+import { BarChart2, TrendingUp, Wind, Calendar, Utensils } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, BarChart, Bar
+  ResponsiveContainer, BarChart, Bar, ReferenceLine
 } from "recharts";
-import type { Exercise, WorkoutSet, RunningSession } from "@/types";
+import type { Exercise, WorkoutSet, RunningSession, FoodLogEntry, NutrientTarget, Supplement } from "@/types";
+import { NUTRIENTS, NUTRIENT_MAP } from "@/lib/nutrients";
+import { foodTotals, supplementTotals, targetMap, weeklyStats, shiftDate, todayISO } from "@/lib/nutrition-client";
 
 interface SetWithDate extends WorkoutSet {
   session: { date: string };
@@ -24,7 +26,13 @@ export default function AnalyticsPage() {
   const [runningSessions, setRunningSessions] = useState<RunningSession[]>([]);
   const [consistency, setConsistency] = useState<WeeklyData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"strength" | "running" | "consistency">("strength");
+  const [tab, setTab] = useState<"strength" | "running" | "nutrition" | "consistency">("strength");
+
+  // Nutrition trends (last 28 days)
+  const [nutEntries, setNutEntries] = useState<FoodLogEntry[]>([]);
+  const [nutTargets, setNutTargets] = useState<NutrientTarget[]>([]);
+  const [nutSupps, setNutSupps] = useState<Supplement[]>([]);
+  const [nutKey, setNutKey] = useState("protein_g");
 
   useEffect(() => {
     Promise.all([
@@ -56,6 +64,20 @@ export default function AnalyticsPage() {
       .then(setExerciseSets);
   }, [selectedExId]);
 
+  useEffect(() => {
+    const end = todayISO();
+    const start = shiftDate(end, -27);
+    Promise.all([
+      fetch(`/api/nutrition/log?start=${start}&end=${end}`).then((r) => r.json()).catch(() => []),
+      fetch("/api/nutrition/targets").then((r) => r.json()).catch(() => []),
+      fetch("/api/nutrition/supplements").then((r) => r.json()).catch(() => []),
+    ]).then(([e, t, s]) => {
+      setNutEntries(Array.isArray(e) ? e : []);
+      setNutTargets(Array.isArray(t) ? t : []);
+      setNutSupps(Array.isArray(s) ? s : []);
+    });
+  }, []);
+
   // Build chart data for selected exercise (max weight per session)
   const strengthChartData = (() => {
     const byDate = new Map<string, number>();
@@ -82,6 +104,30 @@ export default function AnalyticsPage() {
       distance: s.actual_distance_km ?? null,
     }));
 
+  // Nutrition: per-day total (food + daily supplement) for the selected nutrient
+  const nutDef = NUTRIENT_MAP[nutKey];
+  const nutTarget = targetMap(nutTargets)[nutKey]?.target_amount ?? nutDef.defaultTarget;
+  const nutSuppDose = supplementTotals(nutSupps)[nutKey] ?? 0;
+  const nutChartData = (() => {
+    const byDate = new Map<string, FoodLogEntry[]>();
+    for (const e of nutEntries) {
+      const list = byDate.get(e.date) ?? [];
+      list.push(e);
+      byDate.set(e.date, list);
+    }
+    return Array.from(byDate.keys())
+      .sort()
+      .map((date) => {
+        const food = foodTotals(byDate.get(date)!)[nutKey];
+        const value = (food ?? 0) + nutSuppDose;
+        return {
+          date: new Date(date + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" }),
+          value: Math.round(value * 10) / 10,
+        };
+      });
+  })();
+  const nutStat = weeklyStats(nutEntries, nutSupps, nutTargets).find((s) => s.key === nutKey);
+
   if (loading) return <Loader />;
 
   return (
@@ -93,7 +139,7 @@ export default function AnalyticsPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 p-1 rounded-xl" style={{ background: "var(--surface)" }}>
-        {(["strength", "running", "consistency"] as const).map((t) => (
+        {(["strength", "running", "nutrition", "consistency"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -218,6 +264,77 @@ export default function AnalyticsPage() {
                   .toFixed(1)}km`}
               />
             </div>
+          )}
+        </div>
+      )}
+
+      {/* Nutrition Tab */}
+      {tab === "nutrition" && (
+        <div className="space-y-4">
+          <div>
+            <p className="text-xs font-semibold mb-2" style={{ color: "var(--muted)" }}>SELECT NUTRIENT</p>
+            <select
+              value={nutKey}
+              onChange={(e) => setNutKey(e.target.value)}
+              className="w-full h-11 px-3 rounded-xl text-sm outline-none"
+              style={{ background: "var(--surface)", color: "var(--foreground)", border: "1px solid var(--border)" }}
+            >
+              {NUTRIENTS.map((n) => (
+                <option key={n.key} value={n.key}>{n.label} ({n.unit})</option>
+              ))}
+            </select>
+          </div>
+
+          {nutChartData.length === 0 ? (
+            <EmptyState icon={<Utensils size={32} style={{ color: "var(--muted)" }} />}
+              message="Log foods to see nutrition trends here." />
+          ) : (
+            <>
+              <div className="rounded-2xl p-4"
+                style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+                <p className="text-xs font-semibold mb-4" style={{ color: "var(--muted)" }}>
+                  {nutDef.label.toUpperCase()} PER DAY ({nutDef.unit}) — LAST 28 DAYS
+                </p>
+                <ResponsiveContainer width="100%" height={200}>
+                  <LineChart data={nutChartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: "var(--muted)" }} />
+                    <YAxis tick={{ fontSize: 10, fill: "var(--muted)" }} />
+                    <Tooltip
+                      contentStyle={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 8 }}
+                      labelStyle={{ color: "var(--muted)", fontSize: 11 }}
+                      itemStyle={{ color: "var(--accent)" }}
+                    />
+                    <ReferenceLine
+                      y={nutTarget}
+                      stroke="var(--warning)"
+                      strokeDasharray="4 4"
+                      label={{
+                        value: `${nutDef.direction === "limit" ? "limit" : "target"} ${nutTarget}`,
+                        fill: "var(--warning)", fontSize: 10, position: "insideTopRight",
+                      }}
+                    />
+                    <Line type="monotone" dataKey="value"
+                      stroke="var(--accent)" strokeWidth={2.5}
+                      dot={{ fill: "var(--accent)", r: 3 }} activeDot={{ r: 6 }}
+                      name={`${nutDef.label} (${nutDef.unit})`} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+
+              {nutStat && (
+                <div className="grid grid-cols-2 gap-3">
+                  <StatCard
+                    label={`Avg / day (${nutDef.unit})`}
+                    value={String(Math.round(nutStat.avg))}
+                  />
+                  <StatCard
+                    label={`Days ${nutDef.direction === "limit" ? "over limit" : "below target"}`}
+                    value={`${nutStat.daysBelow}/${nutStat.daysLogged}`}
+                  />
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

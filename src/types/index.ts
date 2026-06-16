@@ -124,6 +124,70 @@ export interface StretchingSession {
   stretching_routine?: StretchingRoutine;
 }
 
+// ---- Nutrition ----
+
+export type NutrientSnapshot = Record<string, number | null>;
+export type TargetDirection = "floor" | "limit";
+
+export interface FoodLogEntry {
+  id: string;
+  date: string;
+  fdc_id: string | null;
+  food_name: string;
+  brand: string | null;
+  quantity_g: number;
+  nutrients: NutrientSnapshot;
+  data_type: string | null;
+  created_at: string;
+}
+
+export interface NutrientTarget {
+  nutrient_key: string;
+  target_amount: number;
+  direction: TargetDirection;
+  enabled: boolean;
+}
+
+export interface Supplement {
+  id: string;
+  nutrient_key: string;
+  name: string | null;
+  dose_amount: number;
+  created_at: string;
+}
+
+/** A simplified USDA search result returned by /api/nutrition/search. */
+export interface FoodSearchResult {
+  fdcId: number;
+  description: string;
+  brandOwner: string | null;
+  dataType: string | null;
+  servingSize: number | null;
+  servingSizeUnit: string | null;
+}
+
+/** A distinct recently/frequently logged food for one-tap re-logging. */
+export interface RecentFood {
+  fdc_id: string | null;
+  food_name: string;
+  brand: string | null;
+  quantity_g: number;
+  nutrients: NutrientSnapshot;
+  data_type: string | null;
+  count: number;
+}
+
+/** Per-100g nutrients + serving info returned by /api/nutrition/food. */
+export interface FoodDetail {
+  fdcId: number;
+  description: string;
+  brand: string | null;
+  dataType: string | null;
+  per100g: NutrientSnapshot;
+  servingSize: number | null; // grams (converted)
+  servingSizeUnit: string | null;
+}
+
 export interface ProgressionSuggestion {
   exercise_id: string;
   suggested_weight_kg: number;

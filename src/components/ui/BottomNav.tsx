@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, Dumbbell, PersonStanding, Wind, BarChart2 } from "lucide-react";
+import { LayoutDashboard, Dumbbell, PersonStanding, Wind, BarChart2, Utensils } from "lucide-react";
 
 const NAV_ITEMS = [
   { href: "/", icon: LayoutDashboard, label: "Home" },
   { href: "/strength", icon: Dumbbell, label: "Strength" },
   { href: "/running", icon: Wind, label: "Running" },
   { href: "/stretching", icon: PersonStanding, label: "Stretch" },
+  { href: "/nutrition", icon: Utensils, label: "Food" },
   { href: "/analytics", icon: BarChart2, label: "Progress" },
 ];
 
