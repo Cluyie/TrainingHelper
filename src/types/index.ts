@@ -1,0 +1,134 @@
+export type Equipment = "gym" | "home_cable";
+export type Phase = 1 | 2 | 3;
+export type DayOfWeek = "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday";
+export type ExerciseCategory = "hinge" | "squat" | "push" | "pull" | "carry" | "core" | "shoulder_health";
+export type SplitType = "full_body" | "upper_lower" | "ppl" | "ppl_x2" | "gym_home";
+export type RunType = "easy" | "interval" | "long" | "unstructured";
+
+export interface UserSettings {
+  id: string;
+  training_days_per_week: number;
+  session_duration_min: number;
+  equipment: Equipment[];
+  current_phase: Phase;
+  program_start_date: string | null;
+  training_days: DayOfWeek[];
+  home_days: DayOfWeek[];
+  stretching_days_per_week: number;
+  stretching_duration_min: number;
+  split_type: SplitType | null;
+  onboarding_complete: boolean;
+}
+
+export interface Exercise {
+  id: string;
+  name: string;
+  category: ExerciseCategory;
+  equipment: string[];
+  phase_unlock: Phase;
+  shoulder_safe: boolean;
+  lower_back_safe: boolean;
+  home_compatible: boolean;
+  animation_url: string | null;
+  description: string;
+  muscle_groups: string[];
+}
+
+export interface PlannedWorkout {
+  id: string;
+  label: string;
+  day_of_week: DayOfWeek;
+  order_in_week: number;
+  is_home_workout: boolean;
+  planned_exercises?: PlannedExercise[];
+}
+
+export interface PlannedExercise {
+  id: string;
+  planned_workout_id: string;
+  exercise_id: string;
+  order_index: number;
+  target_sets: number;
+  target_reps_min: number;
+  target_reps_max: number;
+  progression_increment_kg: number;
+  exercise?: Exercise;
+}
+
+export interface WorkoutSession {
+  id: string;
+  planned_workout_id: string;
+  date: string;
+  started_at: string;
+  completed_at: string | null;
+  notes: string | null;
+  planned_workout?: PlannedWorkout;
+}
+
+export interface WorkoutSet {
+  id: string;
+  session_id: string;
+  exercise_id: string;
+  set_number: number;
+  weight_kg: number;
+  reps: number;
+  rpe: number | null;
+  completed_at: string;
+  exercise?: Exercise;
+}
+
+export interface RunningSession {
+  id: string;
+  program_week: number;
+  date: string | null;
+  type: RunType;
+  target_duration_min: number;
+  target_description: string;
+  actual_duration_min: number | null;
+  actual_distance_km: number | null;
+  completed: boolean;
+  optional: boolean;
+  notes: string | null;
+}
+
+export interface StretchingExercise {
+  id: string;
+  name: string;
+  category: string;
+  duration_sec: number;
+  animation_url: string | null;
+  description: string;
+}
+
+export interface StretchingRoutine {
+  id: string;
+  name: string;
+  focus: string;
+  routine_number: number;
+  stretching_routine_exercises?: StretchingRoutineExercise[];
+}
+
+export interface StretchingRoutineExercise {
+  id: string;
+  routine_id: string;
+  exercise_id: string;
+  order_index: number;
+  stretching_exercise?: StretchingExercise;
+}
+
+export interface StretchingSession {
+  id: string;
+  routine_id: string;
+  date: string;
+  completed: boolean;
+  stretching_routine?: StretchingRoutine;
+}
+
+export interface ProgressionSuggestion {
+  exercise_id: string;
+  suggested_weight_kg: number;
+  last_weight_kg: number | null;
+  last_reps: number | null;
+  message: string;
+  is_increase: boolean;
+}
