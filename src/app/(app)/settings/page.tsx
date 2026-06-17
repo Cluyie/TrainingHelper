@@ -261,6 +261,75 @@ export default function SettingsPage() {
         </div>
       </Section>
 
+      {/* About you — feeds adaptive nutrition targets (optional) */}
+      <Section title="About you">
+        <p className="text-xs mb-3" style={{ color: "var(--muted)" }}>
+          Used to estimate your calorie & protein targets. Optional — the nutrition
+          tracker falls back to defaults until these and a weigh-in exist.
+        </p>
+
+        <div className="space-y-4">
+          <div>
+            <p className="text-xs mb-2" style={{ color: "var(--muted)" }}>Sex</p>
+            <div className="flex gap-2">
+              {(["male", "female"] as const).map((s) => {
+                const active = settings.sex === s;
+                return (
+                  <button key={s} onClick={() => setSettings((p) => ({ ...p, sex: s }))}
+                    className="flex-1 h-11 rounded-xl text-sm font-semibold capitalize transition-all"
+                    style={{ background: active ? "var(--accent)" : "var(--surface-2)", color: active ? "#fff" : "var(--muted)" }}>
+                    {s}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <p className="text-xs mb-2" style={{ color: "var(--muted)" }}>Birth year</p>
+              <input type="number" inputMode="numeric" placeholder="1992"
+                value={settings.birth_year ?? ""}
+                onChange={(e) => setSettings((p) => ({ ...p, birth_year: e.target.value ? Number(e.target.value) : null }))}
+                className="w-full h-11 px-3 rounded-xl text-sm outline-none"
+                style={{ background: "var(--surface-2)", color: "var(--foreground)", border: "1px solid var(--border)" }} />
+            </div>
+            <div className="flex-1">
+              <p className="text-xs mb-2" style={{ color: "var(--muted)" }}>Height (cm)</p>
+              <input type="number" inputMode="decimal" placeholder="182"
+                value={settings.height_cm ?? ""}
+                onChange={(e) => setSettings((p) => ({ ...p, height_cm: e.target.value ? Number(e.target.value) : null }))}
+                className="w-full h-11 px-3 rounded-xl text-sm outline-none"
+                style={{ background: "var(--surface-2)", color: "var(--foreground)", border: "1px solid var(--border)" }} />
+            </div>
+          </div>
+
+          <div>
+            <p className="text-xs mb-2" style={{ color: "var(--muted)" }}>Activity level</p>
+            <div className="grid grid-cols-2 gap-2">
+              {([
+                ["sedentary", "Sedentary"], ["light", "Light"],
+                ["moderate", "Moderate"], ["very", "Very active"],
+              ] as const).map(([key, label]) => {
+                const active = settings.activity_level === key;
+                return (
+                  <button key={key} onClick={() => setSettings((p) => ({ ...p, activity_level: key }))}
+                    className="h-11 rounded-xl text-sm font-semibold transition-all"
+                    style={{ background: active ? "var(--accent)" : "var(--surface-2)", color: active ? "#fff" : "var(--muted)" }}>
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[11px] mt-2" style={{ color: "var(--muted)" }}>
+              Include your training — pick how active you are overall. With several workouts + runs a
+              week that&apos;s usually &ldquo;Very active&rdquo;. This is only a starting estimate; the app learns
+              your real burn from your weight trend over ~2 weeks.
+            </p>
+          </div>
+        </div>
+      </Section>
+
       <button onClick={handleSave} disabled={saving || !canSave}
         className="w-full h-14 rounded-2xl text-base font-bold transition-all active:scale-95 disabled:opacity-40"
         style={{ background: "var(--accent)", color: "#fff" }}>

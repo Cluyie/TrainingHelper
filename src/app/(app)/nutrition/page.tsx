@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Utensils, Settings, Plus, ChevronLeft, ChevronRight,
-  ChevronDown, Trash2, AlertTriangle, BookOpen,
+  ChevronDown, Trash2, AlertTriangle, BookOpen, Droplet,
 } from "lucide-react";
 import {
   TIER1, byGroup, GROUP_ORDER, GROUP_LABELS, NUTRIENT_MAP,
@@ -169,6 +169,14 @@ function DayView({
 }) {
   if (loading) return <Loader />;
 
+  // Fat budget: with protein + carbs set, fat is the macro that balances calories.
+  // Show how much fat is left to reach today's calorie target (9 kcal/g).
+  const calTarget = tMap["calories"]?.target_amount ?? NUTRIENT_MAP["calories"].defaultTarget;
+  const calLogged = (food["calories"] ?? 0) + (suppMap["calories"] ?? 0);
+  const fatLogged = (food["fat_g"] ?? 0) + (suppMap["fat_g"] ?? 0);
+  const kcalLeft = calTarget - calLogged;
+  const fatLeft = kcalLeft / 9;
+
   return (
     <div className="space-y-5">
       <button
@@ -200,6 +208,35 @@ function DayView({
           );
         })}
       </div>
+
+      {/* Fat budget — fat fills whatever calories protein + carbs leave */}
+      {entries.length > 0 && (
+        <div className="rounded-2xl px-4 py-3 flex items-center justify-between"
+          style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+          <div className="flex items-center gap-2.5 min-w-0">
+            <Droplet size={18} style={{ color: kcalLeft >= 0 ? "var(--accent)" : "var(--warning)" }} />
+            <div className="min-w-0">
+              <p className="text-sm font-medium">
+                {kcalLeft >= 0 ? "Fat to hit calories" : "Over calorie target"}
+              </p>
+              <p className="text-[11px]" style={{ color: "var(--muted)" }}>
+                {kcalLeft >= 0
+                  ? `${Math.round(kcalLeft)} kcal to go · ${Math.round(fatLogged)} g fat logged`
+                  : `${Math.round(-kcalLeft)} kcal over · ${Math.round(fatLogged)} g fat logged`}
+              </p>
+            </div>
+          </div>
+          <div className="text-right shrink-0">
+            <p className="text-lg font-bold tabular-nums"
+              style={{ color: kcalLeft >= 0 ? "var(--accent)" : "var(--warning)" }}>
+              {kcalLeft >= 0 ? `${Math.round(fatLeft)} g` : `+${Math.round(-fatLeft)} g`}
+            </p>
+            <p className="text-[10px]" style={{ color: "var(--muted)" }}>
+              {kcalLeft >= 0 ? "fat left" : "over"}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Tier 2 — healthspan metrics dropdown */}
       <div className="rounded-2xl overflow-hidden"

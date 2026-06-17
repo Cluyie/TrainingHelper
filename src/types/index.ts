@@ -11,6 +11,18 @@ export interface User {
   created_at: string;
 }
 
+export type Sex = "male" | "female";
+export type ActivityLevel = "sedentary" | "light" | "moderate" | "very";
+export type Goal = "cut" | "maintain" | "lean_gain";
+
+export interface BodyWeight {
+  id: string;
+  user_id: string;
+  date: string;
+  weight_kg: number;
+  created_at: string;
+}
+
 export interface UserSettings {
   id: string;
   user_id: string;
@@ -25,6 +37,12 @@ export interface UserSettings {
   stretching_duration_min: number;
   split_type: SplitType | null;
   onboarding_complete: boolean;
+  // Profile for adaptive nutrition targets (all optional)
+  sex: Sex | null;
+  birth_year: number | null;
+  height_cm: number | null;
+  activity_level: ActivityLevel | null;
+  goal: Goal | null;
 }
 
 export interface Exercise {

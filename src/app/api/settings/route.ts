@@ -60,6 +60,30 @@ export async function POST(request: NextRequest) {
   return NextResponse.json(settings);
 }
 
+// PATCH → update profile/goal fields only (no program regeneration).
+export async function PATCH(request: NextRequest) {
+  const auth = await getAuthUser();
+  if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
+  const body = await request.json();
+  const allowed = ["sex", "birth_year", "height_cm", "activity_level", "goal"] as const;
+  const updates: Record<string, unknown> = {};
+  for (const k of allowed) if (k in body) updates[k] = body[k];
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json({ error: "no updatable fields" }, { status: 400 });
+  }
+
+  const { data, error } = await getSupabaseAdmin()
+    .from("user_settings")
+    .update(updates)
+    .eq("user_id", auth.userId)
+    .select()
+    .single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json(data);
+}
+
 async function regenerateProgram(settings: UserSettings, userId: string) {
   await getSupabaseAdmin()
     .from("planned_workouts")

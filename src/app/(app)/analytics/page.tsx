@@ -1,14 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BarChart2, TrendingUp, Wind, Calendar, Utensils } from "lucide-react";
+import { BarChart2, TrendingUp, Wind, Calendar, Utensils, Scale } from "lucide-react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, BarChart, Bar, ReferenceLine
+  ResponsiveContainer, BarChart, Bar, ReferenceLine, Legend
 } from "recharts";
-import type { Exercise, WorkoutSet, RunningSession, FoodLogEntry, NutrientTarget, Supplement } from "@/types";
+import type { Exercise, WorkoutSet, RunningSession, FoodLogEntry, NutrientTarget, Supplement, BodyWeight } from "@/types";
 import { NUTRIENTS, NUTRIENT_MAP } from "@/lib/nutrients";
 import { foodTotals, supplementTotals, targetMap, weeklyStats, shiftDate, todayISO } from "@/lib/nutrition-client";
+import { weightTrend } from "@/lib/targets";
 
 interface SetWithDate extends WorkoutSet {
   session: { date: string };
@@ -26,7 +27,9 @@ export default function AnalyticsPage() {
   const [runningSessions, setRunningSessions] = useState<RunningSession[]>([]);
   const [consistency, setConsistency] = useState<WeeklyData[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"strength" | "running" | "nutrition" | "consistency">("strength");
+  const [tab, setTab] = useState<"strength" | "running" | "body" | "nutrition" | "consistency">("strength");
+
+  const [weights, setWeights] = useState<BodyWeight[]>([]);
 
   // Nutrition trends (last 28 days)
   const [nutEntries, setNutEntries] = useState<FoodLogEntry[]>([]);
@@ -63,6 +66,13 @@ export default function AnalyticsPage() {
       .then((r) => r.json())
       .then(setExerciseSets);
   }, [selectedExId]);
+
+  useEffect(() => {
+    fetch("/api/nutrition/weight")
+      .then((r) => r.json())
+      .then((d) => setWeights(Array.isArray(d) ? d : []))
+      .catch(() => setWeights([]));
+  }, []);
 
   useEffect(() => {
     const end = todayISO();
@@ -128,6 +138,18 @@ export default function AnalyticsPage() {
   })();
   const nutStat = weeklyStats(nutEntries, nutSupps, nutTargets).find((s) => s.key === nutKey);
 
+  // Body weight: daily points + 7-day moving average
+  const bodyTrend = weightTrend(weights.map((w) => ({ date: w.date, weight_kg: Number(w.weight_kg) })));
+  const bodyChartData = bodyTrend.series.map((p) => ({
+    date: new Date(p.date + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" }),
+    weight: p.weight,
+    avg: p.avg,
+  }));
+  const bodyChange =
+    bodyTrend.series.length >= 2
+      ? Math.round((bodyTrend.series[bodyTrend.series.length - 1].avg - bodyTrend.series[0].avg) * 10) / 10
+      : null;
+
   if (loading) return <Loader />;
 
   return (
@@ -139,7 +161,7 @@ export default function AnalyticsPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 p-1 rounded-xl" style={{ background: "var(--surface)" }}>
-        {(["strength", "running", "nutrition", "consistency"] as const).map((t) => (
+        {(["strength", "running", "body", "nutrition", "consistency"] as const).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -264,6 +286,48 @@ export default function AnalyticsPage() {
                   .toFixed(1)}km`}
               />
             </div>
+          )}
+        </div>
+      )}
+
+      {/* Body Tab */}
+      {tab === "body" && (
+        <div className="space-y-4">
+          {bodyChartData.length === 0 ? (
+            <EmptyState icon={<Scale size={32} style={{ color: "var(--muted)" }} />}
+              message="Log your weight (dashboard) to see your trend here." />
+          ) : (
+            <>
+              <div className="rounded-2xl p-4"
+                style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+                <p className="text-xs font-semibold mb-4" style={{ color: "var(--muted)" }}>
+                  WEIGHT (kg) — DAILY + 7-DAY AVERAGE
+                </p>
+                <ResponsiveContainer width="100%" height={200}>
+                  <LineChart data={bodyChartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
+                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: "var(--muted)" }} />
+                    <YAxis domain={["auto", "auto"]} tick={{ fontSize: 10, fill: "var(--muted)" }} />
+                    <Tooltip
+                      contentStyle={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 8 }}
+                      labelStyle={{ color: "var(--muted)", fontSize: 11 }}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Line type="monotone" dataKey="weight" stroke="var(--muted)" strokeWidth={1}
+                      dot={{ r: 2 }} name="Daily" />
+                    <Line type="monotone" dataKey="avg" stroke="var(--accent)" strokeWidth={2.5}
+                      dot={false} name="7-day avg" />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <StatCard label="Current (7-day avg)"
+                  value={bodyTrend.current != null ? `${bodyTrend.current.toFixed(1)} kg` : "—"} />
+                <StatCard label="Change (logged span)"
+                  value={bodyChange != null ? `${bodyChange > 0 ? "+" : ""}${bodyChange} kg` : "—"} />
+              </div>
+            </>
           )}
         </div>
       )}

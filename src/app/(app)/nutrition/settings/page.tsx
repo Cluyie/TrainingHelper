@@ -2,14 +2,31 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronLeft, Plus, Trash2, Pill } from "lucide-react";
+import { ChevronLeft, Plus, Trash2, Pill, Target } from "lucide-react";
 import { NUTRIENTS, NUTRIENT_MAP, TIER1, byGroup, GROUP_ORDER, GROUP_LABELS } from "@/lib/nutrients";
-import type { NutrientTarget, Supplement } from "@/types";
+import type { NutrientTarget, Supplement, Goal } from "@/types";
+
+interface TargetsMeta {
+  goal: Goal;
+  hasWeight: boolean;
+  hasProfile: boolean;
+  maintenance: number | null;
+  source: "adaptive" | "formula" | null;
+  calories: number | null;
+  protein_g: number | null;
+  fat_g: number | null;
+  caloriesOverridden: boolean;
+  proteinOverridden: boolean;
+  fatOverridden: boolean;
+}
+
+const GOAL_LABELS: Record<Goal, string> = { cut: "Cut", maintain: "Maintain", lean_gain: "Lean gain" };
 
 export default function NutritionSettingsPage() {
   const router = useRouter();
   const [targets, setTargets] = useState<NutrientTarget[]>([]);
   const [supps, setSupps] = useState<Supplement[]>([]);
+  const [meta, setMeta] = useState<TargetsMeta | null>(null);
   const [loading, setLoading] = useState(true);
 
   // add-supplement form
@@ -17,16 +34,37 @@ export default function NutritionSettingsPage() {
   const [suppName, setSuppName] = useState("");
   const [suppDose, setSuppDose] = useState("");
 
+  function loadMeta() {
+    return fetch("/api/nutrition/targets?meta=1")
+      .then((r) => r.json())
+      .then((m) => setMeta(m && typeof m === "object" ? m : null))
+      .catch(() => setMeta(null));
+  }
+
   useEffect(() => {
     Promise.all([
       fetch("/api/nutrition/targets").then((r) => r.json()),
       fetch("/api/nutrition/supplements").then((r) => r.json()),
+      loadMeta(),
     ]).then(([t, s]) => {
       setTargets(Array.isArray(t) ? t : []);
       setSupps(Array.isArray(s) ? s : []);
       setLoading(false);
     });
   }, []);
+
+  async function setGoal(goal: Goal) {
+    setMeta((m) => (m ? { ...m, goal } : m));
+    await fetch("/api/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ goal }),
+    });
+    // Recompute calories/protein from the new goal.
+    await loadMeta();
+    const t = await fetch("/api/nutrition/targets").then((r) => r.json());
+    setTargets(Array.isArray(t) ? t : []);
+  }
 
   const tMap = Object.fromEntries(targets.map((t) => [t.nutrient_key, t]));
 
@@ -90,6 +128,55 @@ export default function NutritionSettingsPage() {
         </button>
         <h1 className="text-xl font-bold">Nutrition Settings</h1>
       </div>
+
+      {/* Goal → adaptive calorie & protein targets */}
+      <section className="space-y-3">
+        <h2 className="text-sm font-semibold flex items-center gap-2">
+          <Target size={16} style={{ color: "var(--accent)" }} /> Goal
+        </h2>
+        <div className="flex gap-2">
+          {(["cut", "maintain", "lean_gain"] as const).map((g) => {
+            const active = (meta?.goal ?? "maintain") === g;
+            return (
+              <button key={g} onClick={() => setGoal(g)}
+                className="flex-1 h-11 rounded-xl text-sm font-semibold transition-all"
+                style={{ background: active ? "var(--accent)" : "var(--surface-2)", color: active ? "#06281f" : "var(--muted)" }}>
+                {GOAL_LABELS[g]}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="rounded-2xl px-4 py-3 text-xs leading-relaxed"
+          style={{ background: "var(--surface)", border: "1px solid var(--border)", color: "var(--muted)" }}>
+          {meta?.hasProfile && meta.maintenance != null ? (
+            <>
+              <p>
+                <span className="font-semibold" style={{ color: "var(--foreground)" }}>
+                  Maintenance ≈ {meta.maintenance} kcal
+                </span>{" "}
+                {meta.source === "adaptive"
+                  ? "— learned from your last 2 weeks of weight + food."
+                  : "— formula estimate; sharpens as you log weight + food for ~2 weeks."}
+              </p>
+              <p className="mt-1">
+                Targets: <span className="font-semibold" style={{ color: "var(--accent)" }}>{meta.calories} kcal</span>
+                {" · "}<span className="font-semibold" style={{ color: "var(--accent)" }}>{meta.protein_g} g protein</span>
+                {meta.fat_g != null && <>{" · "}<span className="font-semibold" style={{ color: "var(--accent)" }}>{meta.fat_g} g fat</span></>}.
+                Fat balances whatever calories protein + carbs leave; calories adjust to your weight trend automatically.
+              </p>
+            </>
+          ) : (
+            <p>
+              Add your sex, birth year, height and activity in{" "}
+              <button onClick={() => router.push("/settings")} className="font-semibold underline" style={{ color: "var(--accent)" }}>
+                Settings
+              </button>{" "}
+              and log a weight to get adaptive calorie & protein targets. Until then, the defaults below apply.
+            </p>
+          )}
+        </div>
+      </section>
 
       {/* Net-carb hard limit */}
       <section className="space-y-3">
@@ -196,22 +283,36 @@ export default function NutritionSettingsPage() {
             <div className="space-y-2">
               {items.map((n) => {
                 const t = tMap[n.key];
+                const auto =
+                  !!meta?.hasProfile &&
+                  ((n.key === "calories" && !meta.caloriesOverridden) ||
+                    (n.key === "protein_g" && !meta.proteinOverridden) ||
+                    (n.key === "fat_g" && !meta.fatOverridden));
                 return (
                   <div key={n.key} className="rounded-xl px-4 py-2.5 flex items-center justify-between"
                     style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
                     <div>
                       <p className="text-sm font-medium">{n.label}</p>
                       <p className="text-[10px]" style={{ color: "var(--muted)" }}>
-                        {(t?.direction ?? n.direction) === "limit" ? "limit" : "target"}
+                        {auto ? "from your goal & weight" : (t?.direction ?? n.direction) === "limit" ? "limit" : "target"}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
-                      <input
-                        type="number" inputMode="decimal"
-                        defaultValue={t?.target_amount ?? n.defaultTarget}
-                        onBlur={(e) => patchTarget(n.key, { target_amount: Number(e.target.value) })}
-                        className="w-20 h-9 px-3 rounded-lg text-sm text-right outline-none"
-                        style={{ background: "var(--surface-2)", color: "var(--foreground)", border: "1px solid var(--border)" }} />
+                      {auto ? (
+                        <span className="flex items-center gap-1.5 text-sm font-semibold tabular-nums px-3 h-9 rounded-lg"
+                          style={{ background: "var(--accent-dim)", color: "var(--accent)" }}>
+                          {t?.target_amount ?? n.defaultTarget}
+                          <span className="text-[9px] font-bold px-1 py-0.5 rounded"
+                            style={{ background: "var(--accent)", color: "#06281f" }}>AUTO</span>
+                        </span>
+                      ) : (
+                        <input
+                          type="number" inputMode="decimal"
+                          defaultValue={t?.target_amount ?? n.defaultTarget}
+                          onBlur={(e) => patchTarget(n.key, { target_amount: Number(e.target.value) })}
+                          className="w-20 h-9 px-3 rounded-lg text-sm text-right outline-none"
+                          style={{ background: "var(--surface-2)", color: "var(--foreground)", border: "1px solid var(--border)" }} />
+                      )}
                       <span className="text-xs w-7" style={{ color: "var(--muted)" }}>{n.unit}</span>
                     </div>
                   </div>

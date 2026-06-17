@@ -3,10 +3,11 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Dumbbell, Wind, PersonStanding, ChevronRight, Flame, Calendar, Settings, AlertTriangle, Utensils } from "lucide-react";
-import type { PlannedWorkout, UserSettings, RunningSession, NutrientTarget } from "@/types";
+import { Dumbbell, Wind, PersonStanding, ChevronRight, Flame, Calendar, Settings, AlertTriangle, Utensils, Scale, TrendingDown, TrendingUp } from "lucide-react";
+import type { PlannedWorkout, UserSettings, RunningSession, NutrientTarget, BodyWeight } from "@/types";
 import { getRunSchedulingHint } from "@/lib/run-schedule";
 import { foodTotals, supplementTotals, targetMap, todayISO } from "@/lib/nutrition-client";
+import { weightTrend } from "@/lib/targets";
 import { NUTRIENT_MAP } from "@/lib/nutrients";
 import NutrientBar from "@/components/nutrition/NutrientBar";
 import type { NutrientSnapshot } from "@/types";
@@ -162,6 +163,9 @@ export default function Dashboard() {
         heavyLegs={todayWorkout?.label?.includes("Squat") ?? false}
       />
 
+      {/* Morning weigh-in */}
+      <WeightCard />
+
       {/* This week overview */}
       <div
         className="rounded-2xl p-4"
@@ -289,6 +293,89 @@ function NutritionCard({
         </div>
       )}
     </Link>
+  );
+}
+
+function WeightCard() {
+  const [weights, setWeights] = useState<BodyWeight[]>([]);
+  const [input, setInput] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/nutrition/weight")
+      .then((r) => r.json())
+      .then((d) => setWeights(Array.isArray(d) ? d : []))
+      .catch(() => setWeights([]));
+  }, []);
+
+  const trend = weightTrend(weights.map((w) => ({ date: w.date, weight_kg: Number(w.weight_kg) })));
+
+  async function log() {
+    const kg = Number(input);
+    if (!kg || kg <= 0) return;
+    setSaving(true);
+    const res = await fetch("/api/nutrition/weight", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ weight_kg: kg }),
+    });
+    setSaving(false);
+    if (res.ok) {
+      const saved = await res.json();
+      setWeights((prev) => {
+        const others = prev.filter((w) => w.date !== saved.date);
+        return [...others, saved].sort((a, b) => a.date.localeCompare(b.date));
+      });
+      setInput("");
+    }
+  }
+
+  const delta = trend.weeklyDelta;
+  return (
+    <div className="rounded-2xl p-4" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <Scale size={16} style={{ color: "var(--accent)" }} />
+          <span className="text-sm font-semibold">Weight</span>
+        </div>
+        {trend.current != null && (
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold tabular-nums">{trend.current.toFixed(1)} kg</span>
+            {delta != null && delta !== 0 && (
+              <span className="flex items-center gap-0.5 text-[11px] font-semibold px-2 py-0.5 rounded-full"
+                style={{
+                  background: "var(--surface-2)",
+                  color: delta < 0 ? "var(--accent)" : "var(--warning)",
+                }}>
+                {delta < 0 ? <TrendingDown size={11} /> : <TrendingUp size={11} />}
+                {Math.abs(delta).toFixed(1)}/wk
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {trend.current == null && (
+        <p className="text-sm mb-3" style={{ color: "var(--muted)" }}>
+          Log your weight to track your trend (7-day average).
+        </p>
+      )}
+
+      <div className="flex gap-2">
+        <input
+          type="number" inputMode="decimal" value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="Today's weight (kg)"
+          className="flex-1 h-11 px-3 rounded-xl text-sm outline-none"
+          style={{ background: "var(--surface-2)", color: "var(--foreground)", border: "1px solid var(--border)" }}
+        />
+        <button onClick={log} disabled={saving || !input || Number(input) <= 0}
+          className="px-5 rounded-xl font-semibold text-sm disabled:opacity-50"
+          style={{ background: "var(--accent)", color: "#06281f" }}>
+          {saving ? "…" : "Log"}
+        </button>
+      </div>
+    </div>
   );
 }
 
