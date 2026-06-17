@@ -37,6 +37,7 @@ export default function SettingsPage() {
     current_phase: 1,
     stretching_days_per_week: 3,
     stretching_duration_min: 25,
+    goal: "maintain",
   });
 
   const [dayMap, setDayMap] = useState<Record<DayOfWeek, DayState>>(() =>
@@ -87,11 +88,16 @@ export default function SettingsPage() {
     setSettings((s) => ({ ...s, training_days: gymDays, home_days: homeDays }));
   }, [dayMap]);
 
+  const profileComplete =
+    !!settings.sex && !!settings.birth_year && !!settings.height_cm &&
+    !!settings.activity_level && !!settings.goal;
+
   async function handleSave() {
     const gymDays = settings.training_days ?? [];
     const homeDays = settings.home_days ?? [];
     if (gymDays.length + homeDays.length !== 5) return;
     if (gymDays.length === 0) return;
+    if (!profileComplete) return;
 
     setSaving(true);
     try {
@@ -114,7 +120,7 @@ export default function SettingsPage() {
   const gymDays = Object.values(dayMap).filter((v) => v === "gym").length;
   const homeDays = Object.values(dayMap).filter((v) => v === "home").length;
   const totalActive = gymDays + homeDays;
-  const canSave = totalActive === 5 && gymDays >= 1;
+  const canSave = totalActive === 5 && gymDays >= 1 && profileComplete;
 
   if (loading) {
     return (
@@ -327,13 +333,40 @@ export default function SettingsPage() {
               your real burn from your weight trend over ~2 weeks.
             </p>
           </div>
+
+          <div>
+            <p className="text-xs mb-2" style={{ color: "var(--muted)" }}>Goal</p>
+            <div className="flex gap-2">
+              {([
+                ["cut", "Cut"], ["maintain", "Maintain"], ["lean_gain", "Lean gain"],
+              ] as const).map(([key, label]) => {
+                const active = (settings.goal ?? "maintain") === key;
+                return (
+                  <button key={key} onClick={() => setSettings((p) => ({ ...p, goal: key }))}
+                    className="flex-1 h-11 rounded-xl text-sm font-semibold transition-all"
+                    style={{ background: active ? "var(--accent)" : "var(--surface-2)", color: active ? "#fff" : "var(--muted)" }}>
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[11px] mt-2" style={{ color: "var(--muted)" }}>
+              You can switch this anytime in Nutrition settings.
+            </p>
+          </div>
         </div>
       </Section>
 
       <button onClick={handleSave} disabled={saving || !canSave}
         className="w-full h-14 rounded-2xl text-base font-bold transition-all active:scale-95 disabled:opacity-40"
         style={{ background: "var(--accent)", color: "#fff" }}>
-        {saving ? "Generating program…" : canSave ? "Save & Generate Program" : `Select exactly 5 days (${totalActive}/5)`}
+        {saving
+          ? "Generating program…"
+          : totalActive !== 5
+          ? `Select exactly 5 days (${totalActive}/5)`
+          : !profileComplete
+          ? "Complete your profile above to continue"
+          : "Save & Generate Program"}
       </button>
 
       <button onClick={handleLogout}

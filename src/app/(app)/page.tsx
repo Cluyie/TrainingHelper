@@ -39,7 +39,10 @@ export default function Dashboard() {
       fetch("/api/workouts").then((r) => r.json()),
       fetch("/api/running").then((r) => r.json()),
     ]).then(([s, w, runs]) => {
-      if (!s || !s.onboarding_complete) {
+      // First-time / incomplete profile → finish onboarding before using the app.
+      const profileComplete =
+        s && s.sex && s.birth_year && s.height_cm && s.activity_level && s.goal;
+      if (!s || !s.onboarding_complete || !profileComplete) {
         router.push("/settings");
         return;
       }

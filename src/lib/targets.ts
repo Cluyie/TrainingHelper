@@ -195,9 +195,13 @@ interface MAPoint { date: string; weight: number; avg: number }
 
 function movingAverageWeights(weights: WeightPoint[]): MAPoint[] {
   const sorted = [...weights].sort((a, b) => a.date.localeCompare(b.date));
-  return sorted.map((w, i) => {
-    const windowStart = Math.max(0, i - (MA_WINDOW - 1));
-    const slice = sorted.slice(windowStart, i + 1);
+  return sorted.map((w) => {
+    // Average all weigh-ins within the trailing MA_WINDOW *calendar days* (not
+    // the last N entries), so sparse logging doesn't silently widen the window.
+    const slice = sorted.filter((x) => {
+      const d = daysBetween(x.date, w.date);
+      return d >= 0 && d <= MA_WINDOW - 1;
+    });
     const avg = slice.reduce((s, x) => s + Number(x.weight_kg), 0) / slice.length;
     return { date: w.date, weight: Number(w.weight_kg), avg: Math.round(avg * 100) / 100 };
   });
@@ -213,11 +217,14 @@ export function weightTrend(weights: WeightPoint[]): WeightTrend {
   const series = movingAverageWeights(weights);
   if (!series.length) return { series, current: null, weeklyDelta: null };
   const last = series[series.length - 1];
-  // find the MA point closest to 7 days before the last
+  // most recent MA point at least 7 days back, then normalize the change to a
+  // true per-7-day rate (the gap may exceed 7 days when logging is sparse).
   let prev: MAPoint | null = null;
   for (let i = series.length - 1; i >= 0; i--) {
     if (daysBetween(series[i].date, last.date) >= 7) { prev = series[i]; break; }
   }
-  const weeklyDelta = prev ? Math.round((last.avg - prev.avg) * 100) / 100 : null;
+  const span = prev ? daysBetween(prev.date, last.date) : 0;
+  const weeklyDelta =
+    prev && span > 0 ? Math.round(((last.avg - prev.avg) * 7) / span * 100) / 100 : null;
   return { series, current: last.avg, weeklyDelta };
 }
