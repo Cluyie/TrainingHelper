@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Utensils, Settings, Plus, ChevronLeft, ChevronRight,
-  ChevronDown, Trash2, AlertTriangle,
+  ChevronDown, Trash2, AlertTriangle, BookOpen,
 } from "lucide-react";
 import {
   TIER1, byGroup, GROUP_ORDER, GROUP_LABELS, NUTRIENT_MAP,
@@ -70,14 +70,24 @@ export default function NutritionPage() {
           <Utensils size={22} style={{ color: "var(--accent)" }} />
           <h1 className="text-xl font-bold">Nutrition</h1>
         </div>
-        <button
-          onClick={() => router.push("/nutrition/settings")}
-          className="p-2 rounded-lg"
-          style={{ color: "var(--muted)" }}
-          aria-label="Nutrition settings"
-        >
-          <Settings size={20} />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => router.push("/nutrition/recipes")}
+            className="p-2 rounded-lg"
+            style={{ color: "var(--muted)" }}
+            aria-label="Recipes"
+          >
+            <BookOpen size={20} />
+          </button>
+          <button
+            onClick={() => router.push("/nutrition/settings")}
+            className="p-2 rounded-lg"
+            style={{ color: "var(--muted)" }}
+            aria-label="Nutrition settings"
+          >
+            <Settings size={20} />
+          </button>
+        </div>
       </div>
 
       {/* Day / Week toggle */}

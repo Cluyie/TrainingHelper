@@ -37,6 +37,8 @@ export async function searchFoods(query: string): Promise<FoodSearchResult[]> {
   const json = await res.json();
 
   return (json.foods ?? []).map((f: Record<string, unknown>) => ({
+    source: "usda" as const,
+    id: String(f.fdcId),
     fdcId: f.fdcId as number,
     description: (f.description as string) ?? "Unknown food",
     brandOwner: (f.brandOwner as string) ?? (f.brandName as string) ?? null,

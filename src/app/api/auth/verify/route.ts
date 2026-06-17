@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
-import { SignJWT } from "jose";
+import { getSupabaseAdmin } from "@/lib/supabase";
+import { createAuthToken } from "@/lib/auth";
+export const dynamic = "force-dynamic";
 
 const AUTH_COOKIE = "training_auth";
 const LOCKOUT_COOKIE = "training_lockout";
@@ -10,11 +12,6 @@ const SESSION_DAYS = 30;
 interface LockoutState {
   attempts: number;
   lockedUntil: number | null;
-}
-
-function getSecret(): Uint8Array {
-  const secret = process.env.AUTH_SECRET ?? "fallback-dev-secret-change-in-prod";
-  return new TextEncoder().encode(secret);
 }
 
 function parseLockout(value: string | undefined): LockoutState {
@@ -40,9 +37,14 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const correctPin = process.env.AUTH_PIN ?? "1811";
+  // The PIN identifies the user — look them up.
+  const { data: user } = await getSupabaseAdmin()
+    .from("users")
+    .select("id, name")
+    .eq("pin", String(pin))
+    .maybeSingle();
 
-  if (String(pin) !== correctPin) {
+  if (!user) {
     const newAttempts = lockout.attempts + 1;
     const newLockout: LockoutState =
       newAttempts >= MAX_ATTEMPTS
@@ -68,12 +70,8 @@ export async function POST(request: NextRequest) {
     return response;
   }
 
-  // Correct PIN — issue auth token, clear lockout
-  const token = await new SignJWT({ authenticated: true })
-    .setProtectedHeader({ alg: "HS256" })
-    .setExpirationTime(`${SESSION_DAYS}d`)
-    .setIssuedAt()
-    .sign(getSecret());
+  // Correct PIN — issue auth token (carrying the user id), clear lockout
+  const token = await createAuthToken({ userId: user.id, name: user.name });
 
   const response = NextResponse.json({ success: true });
 

@@ -32,6 +32,10 @@
 .DS_Store
 *.pem
 
+# Frida dataset — large source spreadsheet, redistribute per DTU terms; seed via
+# POST /api/nutrition/frida-import (data lives in Supabase, not the repo)
+/FridaData/
+
 # debug
 npm-debug.log*
 yarn-debug.log*

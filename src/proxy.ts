@@ -3,7 +3,7 @@ import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
 
 const AUTH_COOKIE = "training_auth";
-const PUBLIC_PATHS = ["/login", "/api/auth", "/api/seed"];
+const PUBLIC_PATHS = ["/login", "/api/auth", "/api/seed", "/api/nutrition/frida-import"];
 
 function getSecret(): Uint8Array {
   const secret = process.env.AUTH_SECRET ?? "fallback-dev-secret-change-in-prod";

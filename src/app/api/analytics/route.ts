@@ -1,8 +1,12 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { getAuthUser } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  const auth = await getAuthUser();
+  if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
   const { searchParams } = new URL(request.url);
   const type = searchParams.get("type");
   const exerciseId = searchParams.get("exercise_id");
@@ -15,6 +19,7 @@ export async function GET(request: NextRequest) {
         *,
         session:workout_sessions (date)
       `)
+      .eq("user_id", auth.userId)
       .eq("exercise_id", exerciseId)
       .order("completed_at", { ascending: true });
 
@@ -26,6 +31,7 @@ export async function GET(request: NextRequest) {
     const { data, error } = await getSupabaseAdmin()
       .from("running_sessions")
       .select("*")
+      .eq("user_id", auth.userId)
       .eq("completed", true)
       .order("date", { ascending: true });
 
@@ -41,6 +47,7 @@ export async function GET(request: NextRequest) {
     const { data, error } = await getSupabaseAdmin()
       .from("workout_sessions")
       .select("date, completed_at")
+      .eq("user_id", auth.userId)
       .gte("date", eightWeeksAgo.toISOString().split("T")[0])
       .not("completed_at", "is", null)
       .order("date");
@@ -54,6 +61,7 @@ export async function GET(request: NextRequest) {
     const { data, error } = await getSupabaseAdmin()
       .from("workout_sets")
       .select("exercise_id, exercise:exercises(id, name, category)")
+      .eq("user_id", auth.userId)
       .order("completed_at");
 
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });

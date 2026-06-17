@@ -2,10 +2,17 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Search, Plus, ChevronLeft, CheckCircle2, Clock, Pencil, Check } from "lucide-react";
+import { Search, Plus, ChevronLeft, CheckCircle2, Clock, Pencil, Check, BookOpen } from "lucide-react";
 import { TIER1 } from "@/lib/nutrients";
 import { fmt } from "@/lib/nutrition-client";
-import type { FoodSearchResult, FoodDetail, RecentFood } from "@/types";
+import type { FoodSearchResult, FoodDetail, RecentFood, RecipeSummary, FoodSource } from "@/types";
+
+/** What the Quantity screen will log when saved. */
+interface Selection {
+  source: FoodSource;
+  id: string; // fdc/frida id ("" for recipe)
+  recipeId?: string;
+}
 
 function AddFoodForm() {
   const router = useRouter();
@@ -19,10 +26,12 @@ function AddFoodForm() {
   const [error, setError] = useState<string | null>(null);
 
   const [recent, setRecent] = useState<RecentFood[]>([]);
+  const [recipes, setRecipes] = useState<RecipeSummary[]>([]);
   const [flash, setFlash] = useState<string | null>(null);
   const [relogging, setRelogging] = useState<string | null>(null);
 
   const [detail, setDetail] = useState<FoodDetail | null>(null);
+  const [selected, setSelected] = useState<Selection | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [grams, setGrams] = useState("100");
   const [saving, setSaving] = useState(false);
@@ -33,7 +42,17 @@ function AddFoodForm() {
       .then((r) => r.json())
       .then((d) => setRecent(Array.isArray(d) ? d : []))
       .catch(() => setRecent([]));
+    fetch("/api/nutrition/recipes")
+      .then((r) => r.json())
+      .then((d) => setRecipes(Array.isArray(d) ? d : []))
+      .catch(() => setRecipes([]));
   }, []);
+
+  // Recipes whose name matches the current query (shown above food results).
+  const matchedRecipes =
+    query.trim().length >= 2
+      ? recipes.filter((r) => r.name.toLowerCase().includes(query.trim().toLowerCase()))
+      : recipes;
 
   async function runSearch(e?: React.FormEvent) {
     e?.preventDefault();
@@ -56,17 +75,22 @@ function AddFoodForm() {
 
   // One-tap re-log of a recent food at its last quantity.
   async function relog(item: RecentFood) {
-    const id = item.fdc_id ?? item.food_name;
+    const id = item.recipe_id ?? item.fdc_id ?? item.food_name;
     setRelogging(id);
-    const body = item.fdc_id
-      ? { fdcId: item.fdc_id, grams: item.quantity_g, date }
-      : {
-          food_name: item.food_name,
-          brand: item.brand,
-          nutrients: item.nutrients,
-          grams: item.quantity_g,
-          date,
-        };
+    const body =
+      item.source === "recipe" && item.recipe_id
+        ? { recipeId: item.recipe_id, grams: item.quantity_g, date }
+        : item.source === "frida" && item.fdc_id
+        ? { source: "frida", id: item.fdc_id, grams: item.quantity_g, date }
+        : item.fdc_id
+        ? { fdcId: item.fdc_id, grams: item.quantity_g, date }
+        : {
+            food_name: item.food_name,
+            brand: item.brand,
+            nutrients: item.nutrients,
+            grams: item.quantity_g,
+            date,
+          };
     const res = await fetch("/api/nutrition/log", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -82,16 +106,29 @@ function AddFoodForm() {
     }
   }
 
-  // Open the quantity screen for a recent USDA food (to adjust the amount).
+  // Open the quantity screen for a recent food (to adjust the amount).
   async function adjustRecent(item: RecentFood) {
+    // Recipes: reuse the already-loaded summary (no fetch needed).
+    if (item.source === "recipe" && item.recipe_id) {
+      const rec = recipes.find((r) => r.id === item.recipe_id);
+      if (rec) {
+        selectRecipe(rec, Math.round(item.quantity_g));
+      }
+      return;
+    }
     if (!item.fdc_id) return;
     setLoadingDetail(true);
     setError(null);
     try {
-      const res = await fetch(`/api/nutrition/food?fdcId=${item.fdc_id}`);
+      const url =
+        item.source === "frida"
+          ? `/api/nutrition/food?source=frida&id=${item.fdc_id}`
+          : `/api/nutrition/food?fdcId=${item.fdc_id}`;
+      const res = await fetch(url);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Lookup failed");
       setDetail(data);
+      setSelected({ source: item.source, id: item.fdc_id });
       setGrams(String(Math.round(item.quantity_g)));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Lookup failed");
@@ -104,10 +141,15 @@ function AddFoodForm() {
     setLoadingDetail(true);
     setError(null);
     try {
-      const res = await fetch(`/api/nutrition/food?fdcId=${r.fdcId}`);
+      const url =
+        r.source === "frida"
+          ? `/api/nutrition/food?source=frida&id=${r.id}`
+          : `/api/nutrition/food?fdcId=${r.id}`;
+      const res = await fetch(url);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Lookup failed");
       setDetail(data);
+      setSelected({ source: r.source, id: r.id });
       setGrams(data.servingSize ? String(Math.round(data.servingSize)) : "100");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Lookup failed");
@@ -116,13 +158,35 @@ function AddFoodForm() {
     }
   }
 
+  // Select a recipe → open the Quantity screen using its per-100g snapshot.
+  function selectRecipe(rec: RecipeSummary, grams = 100) {
+    setDetail({
+      fdcId: 0,
+      description: rec.name,
+      brand: null,
+      dataType: "Recipe",
+      per100g: rec.per100g ?? {},
+      servingSize: null,
+      servingSizeUnit: null,
+    });
+    setSelected({ source: "recipe", id: "", recipeId: rec.id });
+    setGrams(String(grams));
+  }
+
   async function save() {
-    if (!detail || !grams || Number(grams) <= 0) return;
+    if (!detail || !selected || !grams || Number(grams) <= 0) return;
     setSaving(true);
+    const g = Number(grams);
+    const body =
+      selected.source === "recipe"
+        ? { recipeId: selected.recipeId, grams: g, date }
+        : selected.source === "frida"
+        ? { source: "frida", id: selected.id, grams: g, date }
+        : { fdcId: selected.id, grams: g, date };
     const res = await fetch("/api/nutrition/log", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fdcId: detail.fdcId, grams: Number(grams), date }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
       const d = await res.json().catch(() => ({}));
@@ -148,7 +212,7 @@ function AddFoodForm() {
   return (
     <div className="max-w-lg mx-auto px-4 py-6 space-y-5">
       <div className="flex items-center gap-3">
-        <button onClick={() => (detail ? setDetail(null) : router.push("/nutrition"))}
+        <button onClick={() => (detail ? (setDetail(null), setSelected(null)) : router.push("/nutrition"))}
           className="p-1" style={{ color: "var(--muted)" }} aria-label="Back">
           <ChevronLeft size={22} />
         </button>
@@ -191,14 +255,43 @@ function AddFoodForm() {
             </button>
           </form>
 
+          {/* Recipes (matched by name, or all when not searching) */}
+          {matchedRecipes.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold mb-2 flex items-center gap-1.5"
+                style={{ color: "var(--muted)" }}>
+                <BookOpen size={13} /> RECIPES
+              </p>
+              <div className="space-y-2">
+                {matchedRecipes.map((rec) => (
+                  <button key={rec.id} onClick={() => selectRecipe(rec)}
+                    className="w-full text-left rounded-xl px-4 py-3 flex items-center justify-between gap-2"
+                    style={{ background: "var(--surface)", border: "1px solid var(--accent)" }}>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{rec.name}</p>
+                      <p className="text-[11px]" style={{ color: "var(--muted)" }}>
+                        Recipe · {rec.ingredient_count} ingredient{rec.ingredient_count === 1 ? "" : "s"}
+                        {rec.per100g?.calories != null && ` · ${Math.round(rec.per100g.calories)} kcal/100g`}
+                      </p>
+                    </div>
+                    <Plus size={18} style={{ color: "var(--accent)" }} />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="space-y-2">
             {results.map((r) => (
-              <button key={r.fdcId} onClick={() => selectFood(r)}
+              <button key={`${r.source}-${r.id}`} onClick={() => selectFood(r)}
                 className="w-full text-left rounded-xl px-4 py-3"
                 style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
                 <p className="text-sm font-medium">{r.description}</p>
                 <p className="text-[11px]" style={{ color: "var(--muted)" }}>
-                  {r.brandOwner ? `${r.brandOwner} · ` : ""}{r.dataType}
+                  {r.source === "frida" ? "Frida (DK)" : ""}
+                  {r.source === "frida" && r.brandOwner ? ` · ${r.brandOwner}` : ""}
+                  {r.source !== "frida" && (r.brandOwner ? `${r.brandOwner} · ` : "")}
+                  {r.source !== "frida" ? r.dataType : ""}
                   {r.servingSize ? ` · serving ${Math.round(r.servingSize)}g` : ""}
                 </p>
               </button>
@@ -223,10 +316,11 @@ function AddFoodForm() {
               </p>
               <div className="space-y-2">
                 {recent.map((item) => {
-                  const id = item.fdc_id ?? item.food_name;
+                  const id = item.recipe_id ?? item.fdc_id ?? item.food_name;
                   const cals = item.nutrients?.calories;
+                  const canAdjust = !!item.fdc_id || item.source === "recipe";
                   return (
-                    <div key={id}
+                    <div key={`${item.source}-${id}`}
                       className="flex items-stretch rounded-xl overflow-hidden"
                       style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
                       <button onClick={() => relog(item)} disabled={relogging === id}
@@ -235,10 +329,11 @@ function AddFoodForm() {
                         <p className="text-[11px]" style={{ color: "var(--muted)" }}>
                           {Math.round(item.quantity_g)} g
                           {cals != null && ` · ${Math.round(cals)} kcal`}
+                          {item.source === "recipe" && " · recipe"}
                           {item.count > 1 && ` · logged ${item.count}×`}
                         </p>
                       </button>
-                      {item.fdc_id ? (
+                      {canAdjust ? (
                         <button onClick={() => adjustRecent(item)}
                           className="px-3 flex items-center justify-center border-l"
                           style={{ borderColor: "var(--border)", color: "var(--muted)" }}

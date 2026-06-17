@@ -13,8 +13,13 @@ function getSecret(): Uint8Array {
   return new TextEncoder().encode(secret);
 }
 
-export async function createAuthToken(): Promise<string> {
-  return new SignJWT({ authenticated: true })
+export interface AuthUser {
+  userId: string;
+  name: string;
+}
+
+export async function createAuthToken(user: AuthUser): Promise<string> {
+  return new SignJWT({ authenticated: true, user_id: user.userId, name: user.name })
     .setProtectedHeader({ alg: "HS256" })
     .setExpirationTime(`${SESSION_DAYS}d`)
     .setIssuedAt()
@@ -35,6 +40,21 @@ export async function isAuthenticated(): Promise<boolean> {
   const token = cookieStore.get(AUTH_COOKIE)?.value;
   if (!token) return false;
   return verifyAuthToken(token);
+}
+
+/** Read + verify the session cookie, returning the logged-in user or null.
+ * API routes call this to scope every query to the user's id. */
+export async function getAuthUser(): Promise<AuthUser | null> {
+  const token = (await cookies()).get(AUTH_COOKIE)?.value;
+  if (!token) return null;
+  try {
+    const { payload } = await jwtVerify(token, getSecret());
+    const userId = payload.user_id as string | undefined;
+    if (!userId) return null;
+    return { userId, name: (payload.name as string) ?? "" };
+  } catch {
+    return null;
+  }
 }
 
 export interface LockoutState {

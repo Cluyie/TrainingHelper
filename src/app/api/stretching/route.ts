@@ -1,8 +1,12 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { getAuthUser } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest) {
+  const auth = await getAuthUser();
+  if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
   const { searchParams } = new URL(request.url);
   const routines = searchParams.get("routines");
   const sessions = searchParams.get("sessions");
@@ -35,6 +39,7 @@ export async function GET(request: NextRequest) {
     const { data, error } = await getSupabaseAdmin()
       .from("stretching_sessions")
       .select("*, stretching_routine:stretching_routines(name, focus)")
+      .eq("user_id", auth.userId)
       .order("date", { ascending: false })
       .limit(20);
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -45,11 +50,15 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await getAuthUser();
+  if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
   const body = await request.json();
 
   const { data, error } = await getSupabaseAdmin()
     .from("stretching_sessions")
     .insert({
+      user_id: auth.userId,
       routine_id: body.routine_id,
       date: body.date ?? new Date().toISOString().split("T")[0],
       completed: body.completed ?? false,
@@ -62,6 +71,9 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  const auth = await getAuthUser();
+  if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
   const body = await request.json();
   const { id, ...updates } = body;
 
@@ -69,6 +81,7 @@ export async function PATCH(request: NextRequest) {
     .from("stretching_sessions")
     .update(updates)
     .eq("id", id)
+    .eq("user_id", auth.userId)
     .select()
     .single();
 

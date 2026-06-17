@@ -5,8 +5,15 @@ export type ExerciseCategory = "hinge" | "squat" | "push" | "pull" | "carry" | "
 export type SplitType = "full_body" | "upper_lower" | "ppl" | "ppl_x2" | "gym_home";
 export type RunType = "easy" | "interval" | "long" | "unstructured";
 
+export interface User {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
 export interface UserSettings {
   id: string;
+  user_id: string;
   training_days_per_week: number;
   session_duration_min: number;
   equipment: Equipment[];
@@ -129,6 +136,9 @@ export interface StretchingSession {
 export type NutrientSnapshot = Record<string, number | null>;
 export type TargetDirection = "floor" | "limit";
 
+/** Provenance of a logged food / search result. */
+export type FoodSource = "usda" | "frida" | "recipe" | "manual";
+
 export interface FoodLogEntry {
   id: string;
   date: string;
@@ -138,6 +148,8 @@ export interface FoodLogEntry {
   quantity_g: number;
   nutrients: NutrientSnapshot;
   data_type: string | null;
+  source: FoodSource;
+  recipe_id: string | null;
   created_at: string;
 }
 
@@ -156,9 +168,12 @@ export interface Supplement {
   created_at: string;
 }
 
-/** A simplified USDA search result returned by /api/nutrition/search. */
+/** A simplified food search result returned by /api/nutrition/search.
+ * Spans multiple sources (USDA + Frida); `id` is the source-native id string. */
 export interface FoodSearchResult {
-  fdcId: number;
+  source: FoodSource;
+  id: string;
+  fdcId: number; // numeric id where available (USDA); 0 for Frida
   description: string;
   brandOwner: string | null;
   dataType: string | null;
@@ -168,7 +183,9 @@ export interface FoodSearchResult {
 
 /** A distinct recently/frequently logged food for one-tap re-logging. */
 export interface RecentFood {
+  source: FoodSource;
   fdc_id: string | null;
+  recipe_id: string | null;
   food_name: string;
   brand: string | null;
   quantity_g: number;
@@ -186,6 +203,41 @@ export interface FoodDetail {
   per100g: NutrientSnapshot;
   servingSize: number | null; // grams (converted)
   servingSizeUnit: string | null;
+}
+
+// ---- Recipes ----
+
+export interface RecipeIngredient {
+  id: string;
+  recipe_id: string;
+  fdc_id: string | null;
+  food_name: string;
+  brand: string | null;
+  quantity_g: number;
+  nutrients: NutrientSnapshot;
+  data_type: string | null;
+  order_index: number;
+}
+
+export interface Recipe {
+  id: string;
+  name: string;
+  total_weight_g: number;
+  per100g: NutrientSnapshot;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  recipe_ingredients?: RecipeIngredient[];
+}
+
+/** Lightweight recipe row for the picker/list (no ingredients). */
+export interface RecipeSummary {
+  id: string;
+  name: string;
+  total_weight_g: number;
+  per100g: NutrientSnapshot;
+  notes: string | null;
+  ingredient_count: number;
 }
 
 export interface ProgressionSuggestion {

@@ -2,7 +2,6 @@
 import { getSupabaseAdmin } from "@/lib/supabase";
 export const dynamic = "force-dynamic";
 import { EXERCISES, STRETCHING_EXERCISES, STRETCHING_ROUTINES } from "@/lib/seed-data";
-import { RUNNING_PROGRAM } from "@/lib/running-program";
 
 export async function POST(request: NextRequest) {
   const secret = request.headers.get("x-seed-secret");
@@ -60,30 +59,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // â”€â”€ 4. Seed running program â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-    // Only seed if not already seeded
-    const { count } = await getSupabaseAdmin()
-      .from("running_sessions")
-      .select("*", { count: "exact", head: true });
-
-    if (!count || count === 0) {
-      const runningSessions = RUNNING_PROGRAM.flatMap((week) =>
-        week.sessions.map((s) => ({
-          program_week: week.week,
-          session_in_week: s.session_in_week,
-          type: s.type,
-          target_duration_min: s.target_duration_min,
-          target_description: s.target_description,
-          optional: s.optional ?? false,
-          completed: false,
-        }))
-      );
-
-      const { error: runErr } = await getSupabaseAdmin()
-        .from("running_sessions")
-        .insert(runningSessions);
-      if (runErr) throw new Error(`running_sessions: ${runErr.message}`);
-    }
+    // Running program is seeded per-user (lazily on first /api/running visit),
+    // so it is no longer part of catalog seeding.
 
     return NextResponse.json({
       success: true,
@@ -92,7 +69,6 @@ export async function POST(request: NextRequest) {
         exercises: EXERCISES.length,
         stretching_exercises: STRETCHING_EXERCISES.length,
         stretching_routines: STRETCHING_ROUTINES.length,
-        running_weeks: RUNNING_PROGRAM.length,
       },
     });
   } catch (error) {

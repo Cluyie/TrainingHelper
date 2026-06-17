@@ -1,8 +1,12 @@
 ﻿import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase";
+import { getAuthUser } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
+  const auth = await getAuthUser();
+  if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+
   const { data, error } = await getSupabaseAdmin()
     .from("planned_workouts")
     .select(`
@@ -12,6 +16,7 @@ export async function GET() {
         exercise:exercises (*)
       )
     `)
+    .eq("user_id", auth.userId)
     .order("order_in_week");
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
