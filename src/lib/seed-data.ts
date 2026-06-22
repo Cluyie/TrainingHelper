@@ -116,6 +116,28 @@ export const EXERCISES = [
     description: "Bar on upper traps, brace hard, descend until thighs parallel. Requires shoulder mobility — Phase 3 only.",
     muscle_groups: ["quads", "glutes", "core"],
   },
+  {
+    name: "Trap Bar Deadlift",
+    category: "squat",
+    equipment: ["barbell"],
+    phase_unlock: 1,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: false,
+    description: "Stand inside a trap (hex) bar, neutral-grip handles at your sides. Brace, drive through the floor, stand tall, then control the descent. The shoulder-friendliest heavy leg lift — neutral grip and a centred load mean no bar on the back and less spinal shear than a conventional deadlift. Your heavy anchor lift. Keep it 3-5 strong reps — never grind to failure.",
+    muscle_groups: ["glutes", "quads", "hamstrings", "lower_back", "grip"],
+  },
+  {
+    name: "Safety Bar Squat",
+    category: "squat",
+    equipment: ["barbell"],
+    phase_unlock: 1,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: false,
+    description: "Specialty bar with a padded yoke and front handles — no shoulder external rotation required, so it's far kinder to cranky shoulders than a back squat. The fallback heavy squat when the trap bar isn't available or a more upright squat pattern is wanted.",
+    muscle_groups: ["quads", "glutes", "core"],
+  },
 
   // ── PUSH ──────────────────────────────────────────────
   {
@@ -273,6 +295,17 @@ export const EXERCISES = [
     home_compatible: false,
     description: "Dead hang to chin above bar. Full range. One of the most reliable indicators of functional strength — if you can do 10 pull-ups at 80, you're doing something right.",
     muscle_groups: ["lats", "biceps", "core"],
+  },
+  {
+    name: "Inverted Row",
+    category: "pull",
+    equipment: ["bodyweight"],
+    phase_unlock: 1,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: true,
+    description: "Lie under a sturdy table (or a bar in a rack), grip the edge, body in a straight line with heels on the floor. Pull your chest to the edge, squeeze the shoulder blades, lower with control. A true bodyweight horizontal pull — the home counterpart to the gym row that keeps the shoulders balanced. Scale by walking your feet in (easier) or elevating them (harder).",
+    muscle_groups: ["lats", "rhomboids", "biceps", "rear_delts"],
   },
 
   // ── CARRY ──────────────────────────────────────────────
@@ -434,6 +467,66 @@ export const EXERCISES = [
     description: "Lie prone on incline bench with very light dumbbells. Form Y (arms overhead), T (arms out), W (elbows bent). 5-6 reps each letter without rest. Strengthens the scapular stabilizers that protect every pressing and pulling movement.",
     muscle_groups: ["rear_delts", "rotator_cuff", "rhomboids", "traps"],
   },
+  {
+    name: "Prone Y-T-W (Floor)",
+    category: "shoulder_health",
+    equipment: ["bodyweight"],
+    phase_unlock: 1,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: true,
+    description: "Lie face down, forehead resting on the floor. Raise the arms off the floor to form a Y (overhead), then a T (straight out to the sides), then a W (elbows bent, squeeze the shoulder blades down). 5-6 reps each letter, no weight needed. The no-equipment scapular-stabiliser drill that keeps the shoulders healthy on home days.",
+    muscle_groups: ["rear_delts", "rotator_cuff", "rhomboids", "traps"],
+  },
+
+  // ── POWER ──────────────────────────────────────────────
+  // Explosive, low-rep, low-fatigue work placed FIRST in the session so it's done
+  // fresh. Power and fast-twitch fibres fade fastest with age — keeping them is one
+  // of the highest-value longevity stimuli. Always explosive, full rest, NEVER to failure.
+  {
+    name: "Box Jump",
+    category: "power",
+    equipment: ["bodyweight"],
+    phase_unlock: 1,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: false,
+    description: "Explosive two-foot jump onto a sturdy box, landing soft and quiet with bent knees. STEP down — never jump down. 3-5 reps with full rest between sets, always fresh and explosive, never to failure. Trains the fast-twitch power that fades fastest with age.",
+    muscle_groups: ["glutes", "quads", "calves"],
+  },
+  {
+    name: "Broad Jump",
+    category: "power",
+    equipment: ["bodyweight"],
+    phase_unlock: 1,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: true,
+    description: "Explosive standing long jump for distance — swing the arms, jump forward, land soft on both feet with bent knees. 3-5 reps, full rest, always fresh and never to failure. Bodyweight horizontal power you can do anywhere.",
+    muscle_groups: ["glutes", "quads", "hamstrings"],
+  },
+  {
+    name: "Vertical Jump",
+    category: "power",
+    equipment: ["bodyweight"],
+    phase_unlock: 1,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: true,
+    description: "Maximal vertical jump — reach for a target overhead, land soft with bent knees. 3-5 reps with full rest, always explosive and fresh, never to failure. Maintains lower-body power with zero equipment.",
+    muscle_groups: ["glutes", "quads", "calves"],
+  },
+  {
+    name: "Kettlebell Swing",
+    category: "power",
+    equipment: ["kettlebell"],
+    phase_unlock: 1,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: false,
+    description: "Explosive hip hinge — snap the hips to float the bell to chest height, arms relaxed, brace hard at the top. The hips do the work, never the arms or lower back. Powerful reps, never to failure; do it fresh, before the heavy lifting. Trains hip power and conditioning with low joint stress.",
+    muscle_groups: ["glutes", "hamstrings", "core", "grip"],
+  },
 ];
 
 // ── STRETCHING EXERCISES ─────────────────────────────────
@@ -474,6 +567,10 @@ export const STRETCHING_EXERCISES = [
   { name: "Shoulder Rolls", category: "mobility", duration_sec: 30, description: "Slow shoulder rolls forward and backward, 8 each direction. Releases tension and improves scapular movement." },
   { name: "Ankle Circles", category: "mobility", duration_sec: 30, description: "Seated or standing, trace large circles with each ankle. 10 each direction. Neglected but important for longevity." },
   { name: "Neck Rolls (half)", category: "mobility", duration_sec: 30, description: "Half-circle neck rolls ear to chest to other ear. Never full circles backward. Releases neck and upper trap tension." },
+  // Balance — single-leg balance is one of the strongest predictors of longevity.
+  { name: "Single-Leg Stand", category: "balance", duration_sec: 30, description: "Stand on one leg, soft knee, eyes forward, stand tall and steady. 30 sec each leg. Single-leg balance is one of the strongest predictors of healthy ageing — train it like any other quality." },
+  { name: "Single-Leg Stand (Eyes Closed)", category: "balance", duration_sec: 20, description: "Stand on one leg with eyes closed — removing vision forces the ankle, hip and inner ear to do the work. Stay near a wall for safety. 20 sec each leg. A big step up from the eyes-open version." },
+  { name: "Single-Leg Balance with Head Turn", category: "balance", duration_sec: 25, description: "Balance on one leg and slowly turn the head side to side, then up and down. Challenges the vestibular system and balance together. 20-30 sec each leg, near a wall if needed." },
 ];
 
 // ── STRETCHING ROUTINES ───────────────────────────────────
@@ -504,6 +601,7 @@ export const STRETCHING_ROUTINES = [
     exercises: [
       "Cat-Cow",
       "Hip Circles",
+      "Single-Leg Balance with Head Turn",
       "Low Lunge Hip Flexor",
       "Dragon Lunge",
       "Lizard Lunge",
@@ -523,6 +621,7 @@ export const STRETCHING_ROUTINES = [
     exercises: [
       "Neck Rolls (half)",
       "Shoulder Rolls",
+      "Single-Leg Stand (Eyes Closed)",
       "Cat-Cow",
       "Thread the Needle",
       "Thoracic Rotation (seated)",
@@ -544,6 +643,7 @@ export const STRETCHING_ROUTINES = [
       "Shoulder Rolls",
       "Ankle Circles",
       "Hip Circles",
+      "Single-Leg Stand",
       "Cat-Cow",
       "Standing Forward Fold",
       "Low Lunge Hip Flexor",

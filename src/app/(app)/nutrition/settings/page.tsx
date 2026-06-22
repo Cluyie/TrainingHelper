@@ -53,19 +53,6 @@ export default function NutritionSettingsPage() {
     });
   }, []);
 
-  async function setGoal(goal: Goal) {
-    setMeta((m) => (m ? { ...m, goal } : m));
-    await fetch("/api/settings", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ goal }),
-    });
-    // Recompute calories/protein from the new goal.
-    await loadMeta();
-    const t = await fetch("/api/nutrition/targets").then((r) => r.json());
-    setTargets(Array.isArray(t) ? t : []);
-  }
-
   const tMap = Object.fromEntries(targets.map((t) => [t.nutrient_key, t]));
 
   async function patchTarget(key: string, patch: Partial<NutrientTarget>) {
@@ -129,22 +116,21 @@ export default function NutritionSettingsPage() {
         <h1 className="text-xl font-bold">Nutrition Settings</h1>
       </div>
 
-      {/* Goal → adaptive calorie & protein targets */}
+      {/* Goal → adaptive calorie & protein targets. Set in /settings, shown here read-only. */}
       <section className="space-y-3">
         <h2 className="text-sm font-semibold flex items-center gap-2">
           <Target size={16} style={{ color: "var(--accent)" }} /> Goal
         </h2>
-        <div className="flex gap-2">
-          {(["cut", "maintain", "lean_gain"] as const).map((g) => {
-            const active = (meta?.goal ?? "maintain") === g;
-            return (
-              <button key={g} onClick={() => setGoal(g)}
-                className="flex-1 h-11 rounded-xl text-sm font-semibold transition-all"
-                style={{ background: active ? "var(--accent)" : "var(--surface-2)", color: active ? "#06281f" : "var(--muted)" }}>
-                {GOAL_LABELS[g]}
-              </button>
-            );
-          })}
+        <div className="rounded-2xl px-4 py-3 flex items-center justify-between"
+          style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+          <div>
+            <p className="text-sm font-semibold">{GOAL_LABELS[meta?.goal ?? "maintain"]}</p>
+            <p className="text-[11px]" style={{ color: "var(--muted)" }}>Drives your calorie & protein targets</p>
+          </div>
+          <button onClick={() => router.push("/settings")}
+            className="text-xs font-semibold underline" style={{ color: "var(--accent)" }}>
+            Change in Settings
+          </button>
         </div>
 
         <div className="rounded-2xl px-4 py-3 text-xs leading-relaxed"

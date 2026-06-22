@@ -61,13 +61,3 @@ export function getProgressionSuggestion(
     is_increase: false,
   };
 }
-
-// Determine if a given workout week is a deload week (every 4th week)
-export function isDeloadWeek(programWeekNumber: number): boolean {
-  return programWeekNumber % 4 === 0;
-}
-
-// Adjust target sets for deload week
-export function getDeloadSets(normalSets: number): number {
-  return Math.max(1, Math.ceil(normalSets * 0.6));
-}

@@ -25,6 +25,37 @@ function buildDayMap(gymDays: DayOfWeek[], homeDays: DayOfWeek[]): Record<DayOfW
   return map;
 }
 
+// Gentle, non-blocking recovery note based on how the week is laid out (wraps Sun→Mon).
+function getRecoveryTip(map: Record<DayOfWeek, DayState>): string | null {
+  const states = DAYS.map((d) => map[d.key]); // monday … sunday
+  const n = states.length;
+  const active = states.map((s) => s !== "rest");
+
+  let maxStreak = 0;
+  if (active.every(Boolean)) {
+    maxStreak = n;
+  } else {
+    let streak = 0;
+    for (let i = 0; i < n * 2; i++) {
+      if (active[i % n]) { streak++; maxStreak = Math.max(maxStreak, streak); }
+      else streak = 0;
+    }
+  }
+
+  let gymAdjacent = false;
+  for (let i = 0; i < n; i++) {
+    if (states[i] === "gym" && states[(i + 1) % n] === "gym") gymAdjacent = true;
+  }
+
+  if (maxStreak >= 4) {
+    return "You've got 4+ training days in a row — consider a rest day in the middle so your body recovers and adapts.";
+  }
+  if (gymAdjacent) {
+    return "Two gym days are back-to-back. That works, but a rest or home day between them gives your legs and joints more recovery.";
+  }
+  return null;
+}
+
 export default function SettingsPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -32,11 +63,9 @@ export default function SettingsPage() {
   const [settings, setSettings] = useState<Partial<UserSettings>>({
     training_days: ["monday", "wednesday", "friday"],
     home_days: ["tuesday", "thursday"],
-    session_duration_min: 60,
     equipment: ["gym"],
     current_phase: 1,
     stretching_days_per_week: 3,
-    stretching_duration_min: 25,
     goal: "maintain",
   });
 
@@ -68,8 +97,8 @@ export default function SettingsPage() {
 
       let next: DayState;
       if (current === "rest") {
-        // Can add if under 5 total
-        if (totalActive >= 5) return prev;
+        // Can add if under 6 total
+        if (totalActive >= 6) return prev;
         next = "gym";
       } else if (current === "gym") {
         next = "home";
@@ -95,7 +124,8 @@ export default function SettingsPage() {
   async function handleSave() {
     const gymDays = settings.training_days ?? [];
     const homeDays = settings.home_days ?? [];
-    if (gymDays.length + homeDays.length !== 5) return;
+    const total = gymDays.length + homeDays.length;
+    if (total < 3 || total > 6) return;
     if (gymDays.length === 0) return;
     if (!profileComplete) return;
 
@@ -120,7 +150,9 @@ export default function SettingsPage() {
   const gymDays = Object.values(dayMap).filter((v) => v === "gym").length;
   const homeDays = Object.values(dayMap).filter((v) => v === "home").length;
   const totalActive = gymDays + homeDays;
-  const canSave = totalActive === 5 && gymDays >= 1 && profileComplete;
+  const daysValid = totalActive >= 3 && totalActive <= 6;
+  const canSave = daysValid && gymDays >= 1 && profileComplete;
+  const recoveryTip = getRecoveryTip(dayMap);
 
   if (loading) {
     return (
@@ -144,7 +176,7 @@ export default function SettingsPage() {
           <Info size={13} className="mt-0.5 shrink-0" style={{ color: "var(--muted)" }} />
           <p className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
             Tap to cycle each day: <span className="font-semibold">Rest → Gym → Home → Rest</span>.
-            Pick exactly 5 training days total. Gym needs weights; home is bodyweight only.
+            Pick 3–6 training days total. Gym needs weights; home is bodyweight only.
           </p>
         </div>
 
@@ -178,34 +210,26 @@ export default function SettingsPage() {
             <div className="w-3 h-3 rounded-full" style={{ background: "#10b981" }} />
             <span style={{ color: "var(--muted)" }}>{homeDays} home</span>
           </div>
-          <span className="ml-auto font-semibold" style={{ color: totalActive === 5 ? "var(--accent)" : "var(--muted)" }}>
-            {totalActive}/5 days
+          <span className="ml-auto font-semibold" style={{ color: daysValid ? "var(--accent)" : "var(--muted)" }}>
+            {totalActive} {totalActive === 1 ? "day" : "days"}
           </span>
         </div>
 
-        {totalActive === 5 && (
+        {daysValid && (
           <div className="mt-3 px-3 py-2 rounded-xl text-xs" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>
             <span className="font-semibold">Program: </span>
             Gym days rotate A → B → C (Hinge/Pull · Squat/Push · Hip/Carry).
-            Home days rotate A → B (Core/Push · Lower/Core).
+            Home days rotate A → B (Push/Pull/Core · Lower/Pull/Core), bodyweight only.
           </div>
         )}
-      </Section>
 
-      {/* Session Duration */}
-      <Section title="Session Duration">
-        <div className="flex gap-2">
-          {[45, 60, 75, 90].map((min) => {
-            const active = settings.session_duration_min === min;
-            return (
-              <button key={min} onClick={() => setSettings((p) => ({ ...p, session_duration_min: min }))}
-                className="flex-1 h-11 rounded-xl text-sm font-semibold transition-all"
-                style={{ background: active ? "var(--accent)" : "var(--surface-2)", color: active ? "#fff" : "var(--muted)" }}>
-                {min}m
-              </button>
-            );
-          })}
-        </div>
+        {daysValid && recoveryTip && (
+          <div className="mt-2 flex items-start gap-2 px-3 py-2 rounded-xl text-xs"
+            style={{ background: "#f59e0b1a", color: "#b45309" }}>
+            <Info size={13} className="mt-0.5 shrink-0" />
+            <span>{recoveryTip}</span>
+          </div>
+        )}
       </Section>
 
       {/* Training Phase */}
@@ -233,37 +257,18 @@ export default function SettingsPage() {
 
       {/* Stretching */}
       <Section title="Stretching / Yoga">
-        <div className="space-y-4">
-          <div>
-            <p className="text-xs mb-2" style={{ color: "var(--muted)" }}>Sessions per week</p>
-            <div className="flex gap-2">
-              {[2, 3, 4, 5].map((n) => {
-                const active = settings.stretching_days_per_week === n;
-                return (
-                  <button key={n} onClick={() => setSettings((p) => ({ ...p, stretching_days_per_week: n }))}
-                    className="flex-1 h-11 rounded-xl text-sm font-semibold transition-all"
-                    style={{ background: active ? "#a78bfa" : "var(--surface-2)", color: active ? "#fff" : "var(--muted)" }}>
-                    {n}×
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-          <div>
-            <p className="text-xs mb-2" style={{ color: "var(--muted)" }}>Duration per session</p>
-            <div className="flex gap-2">
-              {[20, 25, 30, 40].map((min) => {
-                const active = settings.stretching_duration_min === min;
-                return (
-                  <button key={min} onClick={() => setSettings((p) => ({ ...p, stretching_duration_min: min }))}
-                    className="flex-1 h-11 rounded-xl text-sm font-semibold transition-all"
-                    style={{ background: active ? "#a78bfa" : "var(--surface-2)", color: active ? "#fff" : "var(--muted)" }}>
-                    {min}m
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+        <p className="text-xs mb-2" style={{ color: "var(--muted)" }}>Sessions per week</p>
+        <div className="flex gap-2">
+          {[2, 3, 4, 5].map((n) => {
+            const active = settings.stretching_days_per_week === n;
+            return (
+              <button key={n} onClick={() => setSettings((p) => ({ ...p, stretching_days_per_week: n }))}
+                className="flex-1 h-11 rounded-xl text-sm font-semibold transition-all"
+                style={{ background: active ? "#a78bfa" : "var(--surface-2)", color: active ? "#fff" : "var(--muted)" }}>
+                {n}×
+              </button>
+            );
+          })}
         </div>
       </Section>
 
@@ -362,8 +367,10 @@ export default function SettingsPage() {
         style={{ background: "var(--accent)", color: "#fff" }}>
         {saving
           ? "Generating program…"
-          : totalActive !== 5
-          ? `Select exactly 5 days (${totalActive}/5)`
+          : !daysValid
+          ? `Select 3–6 training days (${totalActive} chosen)`
+          : gymDays < 1
+          ? "Pick at least one gym day"
           : !profileComplete
           ? "Complete your profile above to continue"
           : "Save & Generate Program"}

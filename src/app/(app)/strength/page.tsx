@@ -11,16 +11,36 @@ const DAY_NAMES: Record<string, string> = {
 };
 const TODAY_KEYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
 
+const BLOCK_WEEKS = 6;
+
 export default function StrengthPage() {
   const [workouts, setWorkouts] = useState<PlannedWorkout[]>([]);
   const [loading, setLoading] = useState(true);
+  const [cycle, setCycle] = useState<{ weekInBlock: number; isDeload: boolean } | null>(null);
+  const [deloading, setDeloading] = useState(false);
 
   useEffect(() => {
     fetch("/api/workouts")
       .then((r) => r.json())
       .then((data) => setWorkouts(data ?? []))
       .finally(() => setLoading(false));
+    fetch("/api/strength/cycle")
+      .then((r) => r.json())
+      .then((s) => setCycle(s && typeof s.weekInBlock === "number" ? s : null))
+      .catch(() => setCycle(null));
   }, []);
+
+  async function takeDeload() {
+    if (!window.confirm("Start a deload week now? Loads drop ~10% with one fewer set per exercise, and a fresh 6-week block begins afterwards.")) return;
+    setDeloading(true);
+    try {
+      const res = await fetch("/api/strength/cycle", { method: "POST" });
+      const s = await res.json();
+      if (s && typeof s.weekInBlock === "number") setCycle(s);
+    } finally {
+      setDeloading(false);
+    }
+  }
 
   const todayKey = TODAY_KEYS[new Date().getDay()];
 
@@ -90,13 +110,44 @@ export default function StrengthPage() {
         })}
       </div>
 
+      {/* Training block / deload control */}
+      {cycle && (
+        <div className="rounded-2xl p-4" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-sm font-semibold">Training block</span>
+            <span className="text-xs px-2 py-1 rounded-lg"
+              style={{ background: "var(--surface-2)", color: "var(--muted)" }}>
+              Week {cycle.weekInBlock} of {BLOCK_WEEKS}
+            </span>
+          </div>
+          {cycle.isDeload ? (
+            <p className="text-xs flex items-center gap-2" style={{ color: "#b45309" }}>
+              🔄 Deload week — lighter sets &amp; loads. Recover; a fresh block starts next week.
+            </p>
+          ) : (
+            <>
+              <p className="text-xs mb-3" style={{ color: "var(--muted)" }}>
+                Loads trend up for {BLOCK_WEEKS} weeks, then an automatic deload. Feeling beat up?
+                Take one early — a fresh block starts afterwards.
+              </p>
+              <button onClick={takeDeload} disabled={deloading}
+                className="w-full h-11 rounded-xl font-semibold text-sm active:scale-95 disabled:opacity-50"
+                style={{ background: "#f59e0b22", color: "#b45309" }}>
+                {deloading ? "…" : "Take a deload now"}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       <div
         className="rounded-2xl p-4 flex items-start gap-3"
         style={{ background: "var(--surface)", border: "1px solid var(--border)" }}
       >
         <Trophy size={18} style={{ color: "var(--warning)" }} className="mt-0.5 shrink-0" />
         <p className="text-xs" style={{ color: "var(--muted)" }}>
-          Hit all reps at the top of the range → weight goes up next session. Every 4th week is a deload — trust the process.
+          Hit all reps at the top of the range → weight goes up next session. A deload comes
+          automatically every {BLOCK_WEEKS} weeks — or take one early whenever you need it.
         </p>
       </div>
     </div>

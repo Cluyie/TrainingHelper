@@ -55,7 +55,12 @@ export async function POST(request: NextRequest) {
     settings = data;
   }
 
-  await regenerateProgram(settings, auth.userId);
+  try {
+    await regenerateProgram(settings, auth.userId);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "program regeneration failed";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
 
   return NextResponse.json(settings);
 }
@@ -85,10 +90,15 @@ export async function PATCH(request: NextRequest) {
 }
 
 async function regenerateProgram(settings: UserSettings, userId: string) {
-  await getSupabaseAdmin()
+  // Must succeed before inserting the new plan — otherwise old workouts stack.
+  const { error: delErr } = await getSupabaseAdmin()
     .from("planned_workouts")
     .delete()
     .eq("user_id", userId);
+
+  if (delErr) {
+    throw new Error(`failed to clear old program: ${delErr.message}`);
+  }
 
   const { data: exercises } = await getSupabaseAdmin()
     .from("exercises")
@@ -96,8 +106,8 @@ async function regenerateProgram(settings: UserSettings, userId: string) {
 
   if (!exercises || exercises.length === 0) return;
 
-  const templates = generateWorkoutPlan(settings, exercises);
-  const resolved = resolveExercisesForTemplates(templates, exercises);
+  const templates = generateWorkoutPlan(settings);
+  const resolved = resolveExercisesForTemplates(templates, exercises, settings.current_phase);
 
   for (const { templateLabel, templateDay, isHomeWorkout, exercises: exList } of resolved) {
     const orderInWeek = resolved.findIndex((r) => r.templateDay === templateDay) + 1;

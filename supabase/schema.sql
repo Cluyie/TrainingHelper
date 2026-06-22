@@ -11,6 +11,7 @@ create table if not exists user_settings (
   equipment text[] not null default '{"gym"}',
   current_phase integer not null default 1,
   program_start_date date,
+  strength_block_start date,
   training_days text[] not null default '{}',
   stretching_days_per_week integer not null default 3,
   stretching_duration_min integer not null default 25,
@@ -57,7 +58,9 @@ create table if not exists planned_exercises (
 -- Logged workout sessions
 create table if not exists workout_sessions (
   id uuid primary key default gen_random_uuid(),
-  planned_workout_id uuid references planned_workouts(id),
+  -- set null (not cascade): regenerating the program deletes planned_workouts,
+  -- but logged session history must survive — it just loses its plan link.
+  planned_workout_id uuid references planned_workouts(id) on delete set null,
   date date not null default current_date,
   started_at timestamptz default now(),
   completed_at timestamptz,

@@ -1,7 +1,7 @@
 export type Equipment = "gym" | "home_cable";
 export type Phase = 1 | 2 | 3;
 export type DayOfWeek = "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday";
-export type ExerciseCategory = "hinge" | "squat" | "push" | "pull" | "carry" | "core" | "shoulder_health";
+export type ExerciseCategory = "hinge" | "squat" | "push" | "pull" | "carry" | "core" | "shoulder_health" | "power";
 export type SplitType = "full_body" | "upper_lower" | "ppl" | "ppl_x2" | "gym_home";
 export type RunType = "easy" | "interval" | "long" | "unstructured";
 
@@ -31,6 +31,7 @@ export interface UserSettings {
   equipment: Equipment[];
   current_phase: Phase;
   program_start_date: string | null;
+  strength_block_start: string | null; // anchors the repeating 6-week deload cycle
   training_days: DayOfWeek[];
   home_days: DayOfWeek[];
   stretching_days_per_week: number;

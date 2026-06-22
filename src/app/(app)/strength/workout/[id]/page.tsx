@@ -5,8 +5,10 @@ import { useParams, useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, Minus, Plus, Check, ExternalLink, ChevronDown, ChevronUp } from "lucide-react";
 import type { PlannedWorkout, PlannedExercise, WorkoutSet, ProgressionSuggestion } from "@/types";
 import { getProgressionSuggestion } from "@/lib/progression";
+import { deloadSets, deloadWeight } from "@/lib/deload";
 
 const CATEGORY_COLOR: Record<string, string> = {
+  power: "#ef4444",
   hinge: "#f59e0b", squat: "#8b5cf6", push: "#3b82f6",
   pull: "#10b981", carry: "#f97316", core: "#ec4899", shoulder_health: "#06b6d4",
 };
@@ -33,6 +35,14 @@ export default function WorkoutPage() {
   const [repsInput, setRepsInput] = useState("");
   const [showDescription, setShowDescription] = useState(false);
   const [logging, setLogging] = useState(false);
+  const [deload, setDeload] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/strength/cycle")
+      .then((r) => r.json())
+      .then((s) => setDeload(!!s?.isDeload))
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!id) return;
@@ -64,10 +74,12 @@ export default function WorkoutPage() {
     const pe = workout.planned_exercises[currentExIdx];
     if (!pe) return;
     const s = suggestions[pe.exercise_id];
-    setWeightInput(s?.suggested_weight_kg ? String(s.suggested_weight_kg) : "");
+    const base = s?.suggested_weight_kg ?? 0;
+    const w = deload ? deloadWeight(base, pe.progression_increment_kg) : base;
+    setWeightInput(w ? String(w) : "");
     setRepsInput(String(pe.target_reps_min));
     setShowDescription(false);
-  }, [currentExIdx, suggestions, workout]);
+  }, [currentExIdx, suggestions, workout, deload]);
 
   useEffect(() => {
     if (!restActive) return;
@@ -141,12 +153,14 @@ export default function WorkoutPage() {
   }
 
   const exercises = workout.planned_exercises ?? [];
+  // On a deload week, every exercise drops a working set.
+  const effSets = (pe: PlannedExercise) => (deload ? deloadSets(pe.target_sets) : pe.target_sets);
   const currentPE = exercises[currentExIdx];
   const currentEx = currentPE?.exercise;
   const currentSets = sets[currentPE?.exercise_id ?? ""] ?? [];
   const suggestion = suggestions[currentPE?.exercise_id ?? ""];
-  const setsLeft = (currentPE?.target_sets ?? 0) - currentSets.length;
-  const allDone = exercises.every((pe) => (sets[pe.exercise_id]?.length ?? 0) >= pe.target_sets);
+  const setsLeft = (currentPE ? effSets(currentPE) : 0) - currentSets.length;
+  const allDone = exercises.every((pe) => (sets[pe.exercise_id]?.length ?? 0) >= effSets(pe));
   const color = CATEGORY_COLOR[currentEx?.category ?? ""] ?? "var(--accent)";
   const isBodyweight = workout.is_home_workout || (currentPE?.progression_increment_kg === 0 && !suggestion?.last_weight_kg);
 
@@ -171,7 +185,7 @@ export default function WorkoutPage() {
       {/* ── Exercise progress dots ── */}
       <div className="flex gap-1 px-4 mb-3 shrink-0">
         {exercises.map((pe, i) => {
-          const done = (sets[pe.exercise_id]?.length ?? 0) >= pe.target_sets;
+          const done = (sets[pe.exercise_id]?.length ?? 0) >= effSets(pe);
           return (
             <button key={pe.id} onClick={() => setCurrentExIdx(i)}
               className="h-1 rounded-full transition-all flex-1"
@@ -179,6 +193,14 @@ export default function WorkoutPage() {
           );
         })}
       </div>
+
+      {/* ── Deload week banner ── */}
+      {deload && (
+        <div className="mx-4 mb-3 rounded-xl px-3 py-2 text-xs font-semibold shrink-0 flex items-center gap-2"
+          style={{ background: "#f59e0b1a", color: "#b45309" }}>
+          🔄 Deload week — one fewer set, ~10% lighter. Stay well short of failure; this is recovery.
+        </div>
+      )}
 
       {/* ── Rest timer (replaces content when active) ── */}
       {restActive && (
@@ -258,7 +280,7 @@ export default function WorkoutPage() {
             <div className="px-3 py-2 rounded-xl text-center" style={{ background: color + "18" }}>
               <p className="text-[10px] font-semibold mb-0.5" style={{ color }}>TARGET</p>
               <p className="text-sm font-bold" style={{ color }}>
-                {currentPE.target_sets}×{currentPE.target_reps_min}–{currentPE.target_reps_max}
+                {effSets(currentPE)}×{currentPE.target_reps_min}–{currentPE.target_reps_max}
               </p>
             </div>
           </div>
@@ -296,7 +318,7 @@ export default function WorkoutPage() {
           {setsLeft > 0 ? (
             <div className="flex-1 flex flex-col justify-end gap-3">
               <p className="text-xs font-bold text-center tracking-widest" style={{ color: "var(--muted)" }}>
-                SET {currentSets.length + 1} OF {currentPE.target_sets}
+                SET {currentSets.length + 1} OF {effSets(currentPE)}
               </p>
 
               <div className={isBodyweight ? "grid grid-cols-1 gap-3" : "grid grid-cols-2 gap-3"}>
@@ -333,7 +355,7 @@ export default function WorkoutPage() {
               <div className="w-full rounded-2xl font-bold text-base flex items-center justify-center gap-2"
                 style={{ background: color + "18", border: `1px solid ${color}55`, height: 60, color }}>
                 <Check size={20} strokeWidth={3} />
-                All {currentPE.target_sets} sets done
+                All {effSets(currentPE)} sets done
               </div>
             </div>
           )}

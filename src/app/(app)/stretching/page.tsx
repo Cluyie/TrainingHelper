@@ -2,19 +2,22 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { PersonStanding, ChevronRight, Clock } from "lucide-react";
+import { PersonStanding, ChevronRight } from "lucide-react";
 import type { StretchingRoutine, UserSettings } from "@/types";
 
-// Rotation: week number → routine indices (0-based) to use
-function getRoutinesForWeek(weekNum: number, routines: StretchingRoutine[]): StretchingRoutine[] {
+// Rotation: pick `count` routines for the week, starting at a week-based offset so
+// the selection rotates through the catalogue week to week. `count` follows the
+// user's stretching_days_per_week setting (clamped to what the catalogue allows).
+function getRoutinesForWeek(
+  weekNum: number,
+  routines: StretchingRoutine[],
+  count: number
+): StretchingRoutine[] {
   const total = routines.length; // should be 6
   if (total === 0) return [];
+  const n = Math.min(Math.max(count, 1), total);
   const startIdx = (weekNum - 1) % total;
-  return [
-    routines[startIdx % total],
-    routines[(startIdx + 1) % total],
-    routines[(startIdx + 2) % total],
-  ];
+  return Array.from({ length: n }, (_, i) => routines[(startIdx + i) % total]);
 }
 
 function getWeekNumber(): number {
@@ -53,8 +56,8 @@ export default function StretchingPage() {
   if (loading) return <Loader />;
 
   const weekNum = getWeekNumber();
-  const weekRoutines = getRoutinesForWeek(weekNum, routines);
-  const duration = settings?.stretching_duration_min ?? 25;
+  const sessionsPerWeek = settings?.stretching_days_per_week ?? 3;
+  const weekRoutines = getRoutinesForWeek(weekNum, routines, sessionsPerWeek);
 
   return (
     <div className="max-w-lg mx-auto px-4 py-6 space-y-5">
@@ -65,14 +68,16 @@ export default function StretchingPage() {
 
       <div className="rounded-2xl p-3 flex items-center justify-between"
         style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
-        <span className="text-sm" style={{ color: "var(--muted)" }}>This week's routines</span>
+        <span className="text-sm" style={{ color: "var(--muted)" }}>
+          This week&apos;s routines · {sessionsPerWeek}×
+        </span>
         <span className="text-xs px-2 py-1 rounded-lg"
           style={{ background: "var(--surface-2)", color: "var(--muted)" }}>
           Week {weekNum}
         </span>
       </div>
 
-      {/* This week's 3 routines */}
+      {/* This week's routines (count follows stretching_days_per_week) */}
       <div className="space-y-3">
         {weekRoutines.map((routine, i) => {
           const exercises = routine.stretching_routine_exercises ?? [];
@@ -81,15 +86,9 @@ export default function StretchingPage() {
               className="rounded-2xl overflow-hidden"
               style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
               <div className="p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="font-bold">{routine.name}</p>
-                    <p className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>{routine.focus}</p>
-                  </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <Clock size={12} style={{ color: "var(--muted)" }} />
-                    <span className="text-xs" style={{ color: "var(--muted)" }}>{duration} min</span>
-                  </div>
+                <div>
+                  <p className="font-bold">{routine.name}</p>
+                  <p className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>{routine.focus}</p>
                 </div>
 
                 {/* Exercise list preview */}

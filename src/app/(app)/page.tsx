@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Dumbbell, Wind, PersonStanding, ChevronRight, Flame, Calendar, Settings, AlertTriangle, Utensils, Scale, TrendingDown, TrendingUp } from "lucide-react";
-import type { PlannedWorkout, UserSettings, RunningSession, NutrientTarget, BodyWeight } from "@/types";
+import type { PlannedWorkout, RunningSession, NutrientTarget, BodyWeight } from "@/types";
 import { getRunSchedulingHint } from "@/lib/run-schedule";
 import { foodTotals, supplementTotals, targetMap, todayISO } from "@/lib/nutrition-client";
 import { weightTrend } from "@/lib/targets";
@@ -21,7 +21,6 @@ const TODAY_KEYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "fri
 
 export default function Dashboard() {
   const router = useRouter();
-  const [settings, setSettings] = useState<UserSettings | null>(null);
   const [workouts, setWorkouts] = useState<PlannedWorkout[]>([]);
   const [nextRun, setNextRun] = useState<RunningSession | null>(null);
   const [vo2ThisWeek, setVo2ThisWeek] = useState(false);
@@ -46,7 +45,6 @@ export default function Dashboard() {
         router.push("/settings");
         return;
       }
-      setSettings(s);
       setWorkouts(w ?? []);
       // Surface the next required run — optional unstructured sessions carry no
       // pressure and shouldn't nag from the dashboard.
@@ -109,7 +107,7 @@ export default function Dashboard() {
       {todayWorkout ? (
         <TodayCard
           title={`Today: ${todayWorkout.label}`}
-          subtitle={`${todayWorkout.planned_exercises?.length ?? 0} exercises • ${settings?.session_duration_min ?? 60} min`}
+          subtitle={`${todayWorkout.planned_exercises?.length ?? 0} exercises`}
           icon={<Dumbbell size={20} style={{ color: "var(--accent)" }} />}
           href={`/strength/workout/${todayWorkout.id}`}
           accent
