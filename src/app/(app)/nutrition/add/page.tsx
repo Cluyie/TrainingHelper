@@ -2,16 +2,17 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Search, Plus, ChevronLeft, CheckCircle2, Clock, Pencil, Check, BookOpen } from "lucide-react";
+import { Search, Plus, ChevronLeft, CheckCircle2, Clock, Pencil, Check, BookOpen, Tag } from "lucide-react";
 import { TIER1 } from "@/lib/nutrients";
 import { fmt } from "@/lib/nutrition-client";
-import type { FoodSearchResult, FoodDetail, RecentFood, RecipeSummary, FoodSource } from "@/types";
+import type { FoodSearchResult, FoodDetail, RecentFood, RecipeSummary, CustomFood, FoodSource } from "@/types";
 
 /** What the Quantity screen will log when saved. */
 interface Selection {
   source: FoodSource;
-  id: string; // fdc/frida id ("" for recipe)
+  id: string; // fdc/frida id ("" for recipe/custom)
   recipeId?: string;
+  customFoodId?: string;
 }
 
 function AddFoodForm() {
@@ -27,6 +28,7 @@ function AddFoodForm() {
 
   const [recent, setRecent] = useState<RecentFood[]>([]);
   const [recipes, setRecipes] = useState<RecipeSummary[]>([]);
+  const [customFoods, setCustomFoods] = useState<CustomFood[]>([]);
   const [flash, setFlash] = useState<string | null>(null);
   const [relogging, setRelogging] = useState<string | null>(null);
 
@@ -46,13 +48,25 @@ function AddFoodForm() {
       .then((r) => r.json())
       .then((d) => setRecipes(Array.isArray(d) ? d : []))
       .catch(() => setRecipes([]));
+    fetch("/api/nutrition/custom-foods")
+      .then((r) => r.json())
+      .then((d) => setCustomFoods(Array.isArray(d) ? d : []))
+      .catch(() => setCustomFoods([]));
   }, []);
+
+  const q = query.trim().toLowerCase();
 
   // Recipes whose name matches the current query (shown above food results).
   const matchedRecipes =
-    query.trim().length >= 2
-      ? recipes.filter((r) => r.name.toLowerCase().includes(query.trim().toLowerCase()))
-      : recipes;
+    q.length >= 2 ? recipes.filter((r) => r.name.toLowerCase().includes(q)) : recipes;
+
+  // Custom foods matching the query (by name or brand); all when not searching.
+  const matchedCustom =
+    q.length >= 2
+      ? customFoods.filter(
+          (f) => f.name.toLowerCase().includes(q) || (f.brand ?? "").toLowerCase().includes(q)
+        )
+      : customFoods;
 
   async function runSearch(e?: React.FormEvent) {
     e?.preventDefault();
@@ -75,11 +89,13 @@ function AddFoodForm() {
 
   // One-tap re-log of a recent food at its last quantity.
   async function relog(item: RecentFood) {
-    const id = item.recipe_id ?? item.fdc_id ?? item.food_name;
+    const id = item.custom_food_id ?? item.recipe_id ?? item.fdc_id ?? item.food_name;
     setRelogging(id);
     const body =
       item.source === "recipe" && item.recipe_id
         ? { recipeId: item.recipe_id, grams: item.quantity_g, date }
+        : item.source === "custom" && item.custom_food_id
+        ? { customFoodId: item.custom_food_id, grams: item.quantity_g, date }
         : item.source === "frida" && item.fdc_id
         ? { source: "frida", id: item.fdc_id, grams: item.quantity_g, date }
         : item.fdc_id
@@ -108,11 +124,18 @@ function AddFoodForm() {
 
   // Open the quantity screen for a recent food (to adjust the amount).
   async function adjustRecent(item: RecentFood) {
-    // Recipes: reuse the already-loaded summary (no fetch needed).
+    // Recipes / custom foods: reuse the already-loaded summary (no fetch needed).
     if (item.source === "recipe" && item.recipe_id) {
       const rec = recipes.find((r) => r.id === item.recipe_id);
       if (rec) {
         selectRecipe(rec, Math.round(item.quantity_g));
+      }
+      return;
+    }
+    if (item.source === "custom" && item.custom_food_id) {
+      const food = customFoods.find((f) => f.id === item.custom_food_id);
+      if (food) {
+        selectCustomFood(food, Math.round(item.quantity_g));
       }
       return;
     }
@@ -173,6 +196,21 @@ function AddFoodForm() {
     setGrams(String(grams));
   }
 
+  // Select a custom food → open the Quantity screen using its per-100g snapshot.
+  function selectCustomFood(food: CustomFood, grams = food.serving_size_g ?? 100) {
+    setDetail({
+      fdcId: 0,
+      description: food.name,
+      brand: food.brand,
+      dataType: "Custom",
+      per100g: food.per100g ?? {},
+      servingSize: food.serving_size_g,
+      servingSizeUnit: food.serving_size_g != null ? "g" : null,
+    });
+    setSelected({ source: "custom", id: "", customFoodId: food.id });
+    setGrams(String(Math.round(grams)));
+  }
+
   async function save() {
     if (!detail || !selected || !grams || Number(grams) <= 0) return;
     setSaving(true);
@@ -180,6 +218,8 @@ function AddFoodForm() {
     const body =
       selected.source === "recipe"
         ? { recipeId: selected.recipeId, grams: g, date }
+        : selected.source === "custom"
+        ? { customFoodId: selected.customFoodId, grams: g, date }
         : selected.source === "frida"
         ? { source: "frida", id: selected.id, grams: g, date }
         : { fdcId: selected.id, grams: g, date };
@@ -281,6 +321,32 @@ function AddFoodForm() {
             </div>
           )}
 
+          {/* My foods (custom products, matched by name/brand) */}
+          {matchedCustom.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold mb-2 flex items-center gap-1.5"
+                style={{ color: "var(--muted)" }}>
+                <Tag size={13} /> MY FOODS
+              </p>
+              <div className="space-y-2">
+                {matchedCustom.map((food) => (
+                  <button key={food.id} onClick={() => selectCustomFood(food)}
+                    className="w-full text-left rounded-xl px-4 py-3 flex items-center justify-between gap-2"
+                    style={{ background: "var(--surface)", border: "1px solid var(--accent)" }}>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium truncate">{food.name}</p>
+                      <p className="text-[11px]" style={{ color: "var(--muted)" }}>
+                        {food.brand ? `${food.brand} · ` : ""}My food
+                        {food.per100g?.calories != null && ` · ${Math.round(food.per100g.calories)} kcal/100g`}
+                      </p>
+                    </div>
+                    <Plus size={18} style={{ color: "var(--accent)" }} />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="space-y-2">
             {results.map((r) => (
               <button key={`${r.source}-${r.id}`} onClick={() => selectFood(r)}
@@ -316,9 +382,9 @@ function AddFoodForm() {
               </p>
               <div className="space-y-2">
                 {recent.map((item) => {
-                  const id = item.recipe_id ?? item.fdc_id ?? item.food_name;
+                  const id = item.custom_food_id ?? item.recipe_id ?? item.fdc_id ?? item.food_name;
                   const cals = item.nutrients?.calories;
-                  const canAdjust = !!item.fdc_id || item.source === "recipe";
+                  const canAdjust = !!item.fdc_id || item.source === "recipe" || item.source === "custom";
                   return (
                     <div key={`${item.source}-${id}`}
                       className="flex items-stretch rounded-xl overflow-hidden"
@@ -330,6 +396,7 @@ function AddFoodForm() {
                           {Math.round(item.quantity_g)} g
                           {cals != null && ` · ${Math.round(cals)} kcal`}
                           {item.source === "recipe" && " · recipe"}
+                          {item.source === "custom" && " · my food"}
                           {item.count > 1 && ` · logged ${item.count}×`}
                         </p>
                       </button>

@@ -156,7 +156,7 @@ export type NutrientSnapshot = Record<string, number | null>;
 export type TargetDirection = "floor" | "limit";
 
 /** Provenance of a logged food / search result. */
-export type FoodSource = "usda" | "frida" | "recipe" | "manual";
+export type FoodSource = "usda" | "frida" | "recipe" | "manual" | "custom";
 
 export interface FoodLogEntry {
   id: string;
@@ -169,6 +169,7 @@ export interface FoodLogEntry {
   data_type: string | null;
   source: FoodSource;
   recipe_id: string | null;
+  custom_food_id: string | null;
   created_at: string;
 }
 
@@ -205,6 +206,7 @@ export interface RecentFood {
   source: FoodSource;
   fdc_id: string | null;
   recipe_id: string | null;
+  custom_food_id: string | null;
   food_name: string;
   brand: string | null;
   quantity_g: number;
@@ -257,6 +259,21 @@ export interface RecipeSummary {
   per100g: NutrientSnapshot;
   notes: string | null;
   ingredient_count: number;
+}
+
+// ---- Custom foods (user-entered packaged products) ----
+
+/** A user-owned food entered straight from its nutrition label. `per100g` is
+ * keyed by nutrient registry keys and used as the snapshot when logging. */
+export interface CustomFood {
+  id: string;
+  name: string;
+  brand: string | null;
+  per100g: NutrientSnapshot;
+  serving_size_g: number | null;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface ProgressionSuggestion {

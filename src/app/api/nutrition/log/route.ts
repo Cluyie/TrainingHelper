@@ -38,6 +38,7 @@ export async function GET(request: NextRequest) {
 // POST { fdcId, grams, date? }                      → log a USDA food (server computes snapshot)
 // POST { source:'frida', id, grams, date? }          → log a Frida food
 // POST { recipeId, grams, date? }                    → log a recipe (scaled from its per100g)
+// POST { customFoodId, grams, date? }                → log a custom food (scaled from its per100g)
 // POST { food_name, grams, nutrients, date? }        → log a manual entry
 export async function POST(request: NextRequest) {
   const auth = await getAuthUser();
@@ -71,6 +72,25 @@ export async function POST(request: NextRequest) {
         quantity_g: grams,
         nutrients: scaleNutrients(recipe.per100g ?? {}, grams),
         data_type: "Recipe",
+      };
+    } else if (body.customFoodId) {
+      const { data: food, error } = await getSupabaseAdmin()
+        .from("custom_foods")
+        .select("id, name, brand, per100g")
+        .eq("id", body.customFoodId)
+        .eq("user_id", auth.userId)
+        .single();
+      if (error || !food) throw new Error("Custom food not found");
+      row = {
+        date,
+        source: "custom",
+        custom_food_id: food.id,
+        fdc_id: null,
+        food_name: food.name,
+        brand: food.brand,
+        quantity_g: grams,
+        nutrients: scaleNutrients(food.per100g ?? {}, grams),
+        data_type: "Custom",
       };
     } else if (body.source === "frida") {
       const detail = await getFridaDetail(body.id);
@@ -109,7 +129,7 @@ export async function POST(request: NextRequest) {
       };
     } else {
       return NextResponse.json(
-        { error: "Provide fdcId, a Frida id, recipeId, or food_name + nutrients" },
+        { error: "Provide fdcId, a Frida id, recipeId, customFoodId, or food_name + nutrients" },
         { status: 400 }
       );
     }

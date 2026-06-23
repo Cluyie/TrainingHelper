@@ -22,7 +22,7 @@ export async function GET() {
   const groups = new Map<string, RecentFood>();
   for (const e of (data ?? []) as FoodLogEntry[]) {
     const source = e.source ?? "usda";
-    const key = `${source}:${e.recipe_id ?? e.fdc_id ?? e.food_name.toLowerCase()}`;
+    const key = `${source}:${e.custom_food_id ?? e.recipe_id ?? e.fdc_id ?? e.food_name.toLowerCase()}`;
     const existing = groups.get(key);
     if (existing) {
       existing.count += 1; // entries are newest-first, so keep the first (most recent) snapshot
@@ -31,6 +31,7 @@ export async function GET() {
         source,
         fdc_id: e.fdc_id,
         recipe_id: e.recipe_id ?? null,
+        custom_food_id: e.custom_food_id ?? null,
         food_name: e.food_name,
         brand: e.brand,
         quantity_g: e.quantity_g,

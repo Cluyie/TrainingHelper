@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Utensils, Settings, Plus, ChevronLeft, ChevronRight,
-  ChevronDown, Trash2, AlertTriangle, BookOpen, Droplet,
+  ChevronDown, Trash2, AlertTriangle, BookOpen, Droplet, Tag,
 } from "lucide-react";
 import {
   TIER1, byGroup, GROUP_ORDER, GROUP_LABELS, NUTRIENT_MAP,
@@ -71,6 +71,14 @@ export default function NutritionPage() {
           <h1 className="text-xl font-bold">Nutrition</h1>
         </div>
         <div className="flex items-center gap-1">
+          <button
+            onClick={() => router.push("/nutrition/custom-foods")}
+            className="p-2 rounded-lg"
+            style={{ color: "var(--muted)" }}
+            aria-label="My foods"
+          >
+            <Tag size={20} />
+          </button>
           <button
             onClick={() => router.push("/nutrition/recipes")}
             className="p-2 rounded-lg"
