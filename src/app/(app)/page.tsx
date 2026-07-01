@@ -311,8 +311,10 @@ function WeightCard() {
 
   const trend = weightTrend(weights.map((w) => ({ date: w.date, weight_kg: Number(w.weight_kg) })));
 
+  // Accept both "90.5" and "90,5" — Danish keyboards produce a comma.
+  const kg = Number(input.replace(",", "."));
+
   async function log() {
-    const kg = Number(input);
     if (!kg || kg <= 0) return;
     setSaving(true);
     const res = await fetch("/api/nutrition/weight", {
@@ -364,13 +366,13 @@ function WeightCard() {
 
       <div className="flex gap-2">
         <input
-          type="number" inputMode="decimal" value={input}
+          type="text" inputMode="decimal" value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Today's weight (kg)"
           className="flex-1 h-11 px-3 rounded-xl text-sm outline-none"
           style={{ background: "var(--surface-2)", color: "var(--foreground)", border: "1px solid var(--border)" }}
         />
-        <button onClick={log} disabled={saving || !input || Number(input) <= 0}
+        <button onClick={log} disabled={saving || !kg || kg <= 0}
           className="px-5 rounded-xl font-semibold text-sm disabled:opacity-50"
           style={{ background: "var(--accent)", color: "#06281f" }}>
           {saving ? "…" : "Log"}
