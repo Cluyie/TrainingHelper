@@ -182,15 +182,17 @@ function AddFoodForm() {
   }
 
   // Select a recipe → open the Quantity screen using its per-100g snapshot.
-  function selectRecipe(rec: RecipeSummary, grams = 100) {
+  // Default to the whole recipe (total weight) so "full serving" is one tap;
+  // total_weight_g is also exposed as the serving chip so it's easy to return to.
+  function selectRecipe(rec: RecipeSummary, grams = Math.round(rec.total_weight_g) || 100) {
     setDetail({
       fdcId: 0,
       description: rec.name,
       brand: null,
       dataType: "Recipe",
       per100g: rec.per100g ?? {},
-      servingSize: null,
-      servingSizeUnit: null,
+      servingSize: rec.total_weight_g || null,
+      servingSizeUnit: rec.total_weight_g ? "g" : null,
     });
     setSelected({ source: "recipe", id: "", recipeId: rec.id });
     setGrams(String(grams));
@@ -443,7 +445,7 @@ function AddFoodForm() {
             />
             <div className="flex flex-wrap gap-2 mt-3">
               {detail.servingSize && (
-                <Chip label={`Serving ${Math.round(detail.servingSize)}g`}
+                <Chip label={`${detail.dataType === "Recipe" ? "Whole recipe" : "Serving"} ${Math.round(detail.servingSize)}g`}
                   onClick={() => setGrams(String(Math.round(detail.servingSize!)))} />
               )}
               {[50, 100, 150, 200].map((g) => (

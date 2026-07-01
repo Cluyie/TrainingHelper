@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Search, Plus, ChevronLeft, Trash2, Check } from "lucide-react";
 import { TIER1, NUTRIENTS, sumSnapshots, type NutrientSnapshot } from "@/lib/nutrients";
 import { fmt } from "@/lib/nutrition-client";
-import type { FoodSearchResult, FoodSource, Recipe } from "@/types";
+import type { FoodSearchResult, FoodSource, Recipe, CustomFood } from "@/types";
 
 interface BuilderIngredient {
   key: string; // local row key
@@ -38,6 +38,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId?: string }) {
 
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<FoodSearchResult[]>([]);
+  const [customFoods, setCustomFoods] = useState<CustomFood[]>([]);
   const [searching, setSearching] = useState(false);
   const [adding, setAdding] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -77,6 +78,14 @@ export default function RecipeBuilder({ recipeId }: { recipeId?: string }) {
       .catch(() => setError("Failed to load recipe"))
       .finally(() => setLoading(false));
   }, [isEdit, recipeId]);
+
+  // Load the user's custom foods so they can be added as ingredients.
+  useEffect(() => {
+    fetch("/api/nutrition/custom-foods")
+      .then((r) => r.json())
+      .then((d) => setCustomFoods(Array.isArray(d) ? d : []))
+      .catch(() => setCustomFoods([]));
+  }, []);
 
   async function runSearch(e?: React.FormEvent) {
     e?.preventDefault();
@@ -128,6 +137,24 @@ export default function RecipeBuilder({ recipeId }: { recipeId?: string }) {
     }
   }
 
+  // Add one of the user's custom foods as an ingredient. We embed its per-100g
+  // snapshot (source "manual" on save), so the recipe keeps its own copy even if
+  // the custom food is later edited or deleted — same as any manual ingredient.
+  function addCustomFood(food: CustomFood) {
+    setIngredients((prev) => [
+      ...prev,
+      {
+        key: `${Date.now()}-custom-${food.id}`,
+        source: "custom",
+        refId: null,
+        food_name: food.name,
+        brand: food.brand,
+        grams: food.serving_size_g ?? 100,
+        per100g: food.per100g ?? {},
+      },
+    ]);
+  }
+
   function setGrams(key: string, grams: number) {
     setIngredients((prev) => prev.map((i) => (i.key === key ? { ...i, grams } : i)));
   }
@@ -138,6 +165,15 @@ export default function RecipeBuilder({ recipeId }: { recipeId?: string }) {
   // Live totals.
   const totalWeight = ingredients.reduce((s, i) => s + (Number(i.grams) || 0), 0);
   const totals = sumSnapshots(ingredients.map((i) => scale(i.per100g, Number(i.grams) || 0)));
+
+  // Custom foods matching the current query (name or brand); all when not searching.
+  const cq = query.trim().toLowerCase();
+  const matchedCustom =
+    cq.length >= 1
+      ? customFoods.filter(
+          (f) => f.name.toLowerCase().includes(cq) || (f.brand ?? "").toLowerCase().includes(cq)
+        )
+      : customFoods;
 
   async function save() {
     if (!name.trim() || ingredients.length === 0) return;
@@ -208,7 +244,7 @@ export default function RecipeBuilder({ recipeId }: { recipeId?: string }) {
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium truncate">{i.food_name}</p>
               <p className="text-[11px]" style={{ color: "var(--muted)" }}>
-                {i.source === "frida" ? "Frida" : i.source === "manual" ? "Manual" : "USDA"}
+                {i.source === "frida" ? "Frida" : i.source === "custom" ? "My food" : i.source === "manual" ? "Manual" : "USDA"}
                 {i.per100g.calories != null && ` · ${Math.round((i.per100g.calories * i.grams) / 100)} kcal`}
               </p>
             </div>
@@ -261,6 +297,27 @@ export default function RecipeBuilder({ recipeId }: { recipeId?: string }) {
           {searching ? "…" : "Go"}
         </button>
       </form>
+
+      {/* My foods — add a self-created product as an ingredient */}
+      {matchedCustom.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-xs font-semibold" style={{ color: "var(--muted)" }}>MY FOODS</p>
+          {matchedCustom.map((food) => (
+            <button key={food.id} onClick={() => addCustomFood(food)}
+              className="w-full text-left rounded-xl px-4 py-3 flex items-center justify-between gap-2"
+              style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+              <div className="min-w-0">
+                <p className="text-sm font-medium truncate">{food.name}</p>
+                <p className="text-[11px]" style={{ color: "var(--muted)" }}>
+                  {food.brand ? `${food.brand} · ` : ""}My food
+                  {food.per100g?.calories != null && ` · ${Math.round(food.per100g.calories)} kcal/100g`}
+                </p>
+              </div>
+              <Plus size={18} style={{ color: "var(--accent)" }} />
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="space-y-2">
         {results.map((r) => (
