@@ -72,7 +72,7 @@ function slot(
 //   Bulgarian Split Squat: single-leg strength has the strongest correlation with longevity outcomes.
 //   Incline press is shoulder-friendly due to the arm angle.
 //   Seated Cable Row balances the day's pressing work.
-//   Ab Wheel is the hardest anti-extension core exercise — more challenging than plank.
+//   Hollow Body Hold: a hard anti-extension core hold needing no equipment.
 //   Y-T-W directly trains the scapular stabilizers that protect every pressing movement.
 //
 // Gym C — Glute/Hip + Carry focus
@@ -115,7 +115,7 @@ const GYM_B_SLOTS: ExerciseSlot[] = [
   slot("squat",          3, 8, 12, 2.5, { preferredExercise: "Bulgarian Split Squat" }),
   slot("push",           3, 8, 12, 2.5, { preferredExercise: "Incline Dumbbell Press" }),
   slot("pull",           3, 8, 12, 2.5, { preferredExercise: "Seated Cable Row" }),
-  slot("core",           3, 6, 10, 0,   { preferredExercise: "Ab Wheel Rollout" }),
+  slot("core",           3, 20, 40, 0,  { preferredExercise: "Hollow Body Hold" }),
   slot("shoulder_health",3, 12, 15, 0,  { preferredExercise: "Y-T-W on Incline Bench" }),
 ];
 
@@ -148,6 +148,7 @@ const GYM_TEMPLATES = [
 // Home A — Push, Pull & Core
 //   Push-Up: best upper-body bodyweight compound. Pike Push-Up adds the vertical press.
 //   Inverted Row: the missing home horizontal pull — balances all the pushing.
+//   Ab Wheel Rollout: the hardest anti-extension core exercise (needs only an ab wheel).
 //   Plank + Dead Bug: McGill's top anti-extension exercises.
 //   Prone Y-T-W: no-equipment scapular-stabiliser work — shoulder health every home day.
 //
@@ -164,6 +165,7 @@ const HOME_A_SLOTS: ExerciseSlot[] = [
   slot("push",  3, 8, 15, 0,  { preferredExercise: "Push-Up" }),
   slot("push",  3, 8, 12, 0,  { preferredExercise: "Pike Push-Up" }),
   slot("pull",  3, 8, 12, 0,  { preferredExercise: "Inverted Row" }),
+  slot("core",  3, 6, 10, 0,  { preferredExercise: "Ab Wheel Rollout" }),
   slot("core",  3, 30, 60, 0, { preferredExercise: "Plank" }),
   slot("core",  3, 8, 10, 0,  { preferredExercise: "Dead Bug" }),
   slot("shoulder_health", 3, 8, 12, 0, { preferredExercise: "Prone Y-T-W (Floor)" }),

@@ -347,11 +347,11 @@ export const EXERCISES = [
   {
     name: "Ab Wheel Rollout",
     category: "core",
-    equipment: ["bodyweight"],
+    equipment: ["ab_wheel"],
     phase_unlock: 1,
     shoulder_safe: true,
     lower_back_safe: true,
-    home_compatible: false,
+    home_compatible: true,
     description: "Kneel, roll wheel forward until body is parallel to floor (or as far as you can maintain a neutral spine), roll back. One of the hardest anti-extension exercises. Start with short range — never let the lower back arch.",
     muscle_groups: ["core", "lats", "hip_flexors"],
   },

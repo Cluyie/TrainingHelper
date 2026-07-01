@@ -126,7 +126,6 @@ export default function SettingsPage() {
     const homeDays = settings.home_days ?? [];
     const total = gymDays.length + homeDays.length;
     if (total < 3 || total > 6) return;
-    if (gymDays.length === 0) return;
     if (!profileComplete) return;
 
     setSaving(true);
@@ -151,7 +150,7 @@ export default function SettingsPage() {
   const homeDays = Object.values(dayMap).filter((v) => v === "home").length;
   const totalActive = gymDays + homeDays;
   const daysValid = totalActive >= 3 && totalActive <= 6;
-  const canSave = daysValid && gymDays >= 1 && profileComplete;
+  const canSave = daysValid && profileComplete;
   const recoveryTip = getRecoveryTip(dayMap);
 
   if (loading) {
@@ -369,8 +368,6 @@ export default function SettingsPage() {
           ? "Generating program…"
           : !daysValid
           ? `Select 3–6 training days (${totalActive} chosen)`
-          : gymDays < 1
-          ? "Pick at least one gym day"
           : !profileComplete
           ? "Complete your profile above to continue"
           : "Save & Generate Program"}
