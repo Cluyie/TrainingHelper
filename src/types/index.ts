@@ -23,6 +23,14 @@ export interface BodyWeight {
   created_at: string;
 }
 
+export interface DailySteps {
+  id: string;
+  user_id: string;
+  date: string;
+  steps: number;
+  created_at: string;
+}
+
 export interface UserSettings {
   id: string;
   user_id: string;

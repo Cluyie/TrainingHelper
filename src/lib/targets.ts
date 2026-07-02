@@ -190,6 +190,19 @@ export function computeTargets(
   };
 }
 
+/**
+ * Shift calories by a day-level activity adjustment (see src/lib/activity.ts)
+ * and re-balance fat as the remainder macro. Protein stays stable by design.
+ */
+export function adjustTargetsForActivity(
+  t: Targets,
+  adjustmentKcal: number,
+  netCarbTarget: number
+): Targets {
+  const calories = t.calories + adjustmentKcal;
+  return { ...t, calories, fat_g: goalFat(calories, t.protein_g, netCarbTarget) };
+}
+
 // ---- trend (charts + dashboard) ----
 interface MAPoint { date: string; weight: number; avg: number }
 

@@ -4,9 +4,11 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, Plus, Trash2, Pill, Target } from "lucide-react";
 import { NUTRIENTS, NUTRIENT_MAP, TIER1, byGroup, GROUP_ORDER, GROUP_LABELS } from "@/lib/nutrients";
+import type { ActivityAdjustment } from "@/lib/activity";
 import type { NutrientTarget, Supplement, Goal } from "@/types";
 
 interface TargetsMeta {
+  date: string;
   goal: Goal;
   hasWeight: boolean;
   hasProfile: boolean;
@@ -15,6 +17,9 @@ interface TargetsMeta {
   calories: number | null;
   protein_g: number | null;
   fat_g: number | null;
+  adjustedCalories: number | null;
+  adjustedFat: number | null;
+  activity: ActivityAdjustment | null;
   caloriesOverridden: boolean;
   proteinOverridden: boolean;
   fatOverridden: boolean;
@@ -151,6 +156,16 @@ export default function NutritionSettingsPage() {
                 {meta.fat_g != null && <>{" · "}<span className="font-semibold" style={{ color: "var(--accent)" }}>{meta.fat_g} g fat</span></>}.
                 Fat balances whatever calories protein + carbs leave; calories adjust to your weight trend automatically.
               </p>
+              {meta.activity != null && (
+                <p className="mt-1">
+                  Daily calories also shift with your logged activity — training and step-heavy
+                  days get more, rest days less (today:{" "}
+                  <span className="font-semibold" style={{ color: "var(--accent)" }}>
+                    {meta.activity.adjustment >= 0 ? "+" : ""}{meta.activity.adjustment} kcal
+                  </span>
+                  ) — while the weekly average stays on target.
+                </p>
+              )}
             </>
           ) : (
             <p>

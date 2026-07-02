@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Utensils, Settings, Plus, ChevronLeft, ChevronRight,
-  ChevronDown, Trash2, AlertTriangle, BookOpen, Droplet, Tag,
+  ChevronDown, Trash2, AlertTriangle, BookOpen, Droplet, Tag, Footprints,
 } from "lucide-react";
 import {
   TIER1, byGroup, GROUP_ORDER, GROUP_LABELS, NUTRIENT_MAP,
@@ -15,6 +15,7 @@ import {
 } from "@/lib/nutrition-client";
 import NutrientBar from "@/components/nutrition/NutrientBar";
 import TrendIndicator from "@/components/nutrition/TrendIndicator";
+import type { ActivityAdjustment } from "@/lib/activity";
 import type { FoodLogEntry, Supplement, NutrientTarget } from "@/types";
 
 export default function NutritionPage() {
@@ -26,19 +27,29 @@ export default function NutritionPage() {
   const [weekEntries, setWeekEntries] = useState<FoodLogEntry[]>([]);
   const [supps, setSupps] = useState<Supplement[]>([]);
   const [targets, setTargets] = useState<NutrientTarget[]>([]);
+  const [activity, setActivity] = useState<ActivityAdjustment | null>(null);
+  const [targetsRefresh, setTargetsRefresh] = useState(0);
   const [loading, setLoading] = useState(true);
   const [tier2Open, setTier2Open] = useState(false);
 
-  // static data (targets + supplements)
+  // static data (supplements)
+  useEffect(() => {
+    fetch("/api/nutrition/supplements")
+      .then((r) => r.json())
+      .then((s) => setSupps(Array.isArray(s) ? s : []));
+  }, []);
+
+  // targets are per-day: the calorie target shifts with that day's activity
+  // (runs, strength, steps). Re-fetched when the date changes or steps are saved.
   useEffect(() => {
     Promise.all([
-      fetch("/api/nutrition/targets").then((r) => r.json()),
-      fetch("/api/nutrition/supplements").then((r) => r.json()),
-    ]).then(([t, s]) => {
+      fetch(`/api/nutrition/targets?date=${date}`).then((r) => r.json()),
+      fetch(`/api/nutrition/targets?meta=1&date=${date}`).then((r) => r.json()),
+    ]).then(([t, m]) => {
       setTargets(Array.isArray(t) ? t : []);
-      setSupps(Array.isArray(s) ? s : []);
+      setActivity(m?.activity ?? null);
     });
-  }, []);
+  }, [date, targetsRefresh]);
 
   // day entries
   useEffect(() => {
@@ -141,19 +152,24 @@ export default function NutritionPage() {
       {view === "day" ? (
         <DayView
           loading={loading}
+          date={date}
           entries={entries}
           food={food}
           suppMap={suppMap}
           tMap={tMap}
+          activity={activity}
           tier2Open={tier2Open}
           setTier2Open={setTier2Open}
           onAdd={() => router.push(`/nutrition/add?date=${date}`)}
+          onStepsSaved={() => setTargetsRefresh((k) => k + 1)}
           onDelete={async (id) => {
             await fetch(`/api/nutrition/log?id=${id}`, { method: "DELETE" });
             setEntries((prev) => prev.filter((e) => e.id !== id));
           }}
         />
       ) : (
+        // Flat targets are fine here: the activity adjustment is zero-mean over
+        // its window, so weekly averages/daysBelow stats stay unbiased.
         <WeekView stats={weeklyStats(weekEntries, supps, targets)} />
       )}
     </div>
@@ -163,16 +179,20 @@ export default function NutritionPage() {
 // ---------------- Day view ----------------
 
 function DayView({
-  loading, entries, food, suppMap, tMap, tier2Open, setTier2Open, onAdd, onDelete,
+  loading, date, entries, food, suppMap, tMap, activity, tier2Open, setTier2Open,
+  onAdd, onStepsSaved, onDelete,
 }: {
   loading: boolean;
+  date: string;
   entries: FoodLogEntry[];
   food: Record<string, number | null>;
   suppMap: Record<string, number>;
   tMap: Record<string, NutrientTarget>;
+  activity: ActivityAdjustment | null;
   tier2Open: boolean;
   setTier2Open: (v: boolean) => void;
   onAdd: () => void;
+  onStepsSaved: () => void;
   onDelete: (id: string) => void;
 }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
@@ -217,6 +237,14 @@ function DayView({
                   enforce={enforce}
                 />
               </button>
+              {n.key === "calories" && activity != null && activity.adjustment !== 0 && (
+                <p className="text-[11px] mt-0.5" style={{ color: "var(--muted)" }}>
+                  {activity.adjustment > 0 ? `+${activity.adjustment}` : activity.adjustment} kcal for activity
+                  {activity.runMinToday > 0 && ` · run ${activity.runMinToday} min`}
+                  {activity.today.strength > 0 && " · strength"}
+                  {activity.stepsToday != null && ` · ${activity.stepsToday.toLocaleString("en-GB")} steps`}
+                </p>
+              )}
               {open && (
                 <MacroBreakdown
                   entries={entries}
@@ -258,6 +286,14 @@ function DayView({
           </div>
         </div>
       )}
+
+      {/* Daily steps — the NEAT signal for the activity-adjusted calorie target */}
+      <StepsQuickEntry
+        key={`${date}:${activity?.stepsToday ?? ""}`}
+        date={date}
+        initial={activity?.stepsToday ?? null}
+        onSaved={onStepsSaved}
+      />
 
       {/* Tier 2 — healthspan metrics dropdown */}
       <div className="rounded-2xl overflow-hidden"
@@ -335,6 +371,59 @@ function DayView({
   );
 }
 
+// ---------------- Daily steps entry ----------------
+
+// Keyed on date+initial by the caller, so changing day (or the entry arriving
+// from the meta fetch) remounts with a fresh prefill instead of a sync effect.
+function StepsQuickEntry({ initial, date, onSaved }: {
+  date: string;
+  initial: number | null;
+  onSaved: () => void;
+}) {
+  const [input, setInput] = useState(initial != null ? String(initial) : "");
+  const [saving, setSaving] = useState(false);
+
+  const steps = parseInt(input, 10);
+  const valid = Number.isInteger(steps) && steps >= 0;
+
+  async function save() {
+    if (!valid || saving) return;
+    setSaving(true);
+    const res = await fetch("/api/nutrition/steps", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ steps, date }),
+    });
+    setSaving(false);
+    if (res.ok) onSaved();
+  }
+
+  return (
+    <div className="rounded-2xl px-4 py-3 flex items-center gap-3"
+      style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+      <Footprints size={18} style={{ color: "var(--accent)" }} />
+      <div className="min-w-0">
+        <p className="text-sm font-medium">Steps</p>
+        <p className="text-[11px]" style={{ color: "var(--muted)" }}>
+          From your phone — run steps are deducted automatically
+        </p>
+      </div>
+      <input
+        type="text" inputMode="numeric" value={input}
+        onChange={(e) => setInput(e.target.value.replace(/\D/g, ""))}
+        placeholder="0"
+        className="flex-1 h-10 px-3 rounded-xl text-sm text-right outline-none tabular-nums min-w-0"
+        style={{ background: "var(--surface-2)", color: "var(--foreground)", border: "1px solid var(--border)" }}
+      />
+      <button onClick={save} disabled={saving || !valid || (initial != null && steps === initial)}
+        className="px-4 h-10 rounded-xl font-semibold text-sm disabled:opacity-40 shrink-0"
+        style={{ background: "var(--accent)", color: "#06281f" }}>
+        {saving ? "…" : "Save"}
+      </button>
+    </div>
+  );
+}
+
 // ---------------- Macro breakdown (tap a Tier-1 bar) ----------------
 
 function MacroBreakdown({ entries, nutrientKey, unit, supplement }: {
@@ -365,7 +454,28 @@ function MacroBreakdown({ entries, nutrientKey, unit, supplement }: {
     );
   }
 
-  const Row = ({ name, detail, amount }: { name: string; detail?: string; amount: number }) => (
+  return (
+    <div className="mt-2 pt-2.5 space-y-2" style={{ borderTop: "1px solid var(--border)" }}>
+      {rows.map((r) => (
+        <BreakdownRow key={r.id} name={r.name} detail={`${Math.round(r.grams)} g`}
+          amount={r.amount} unit={unit} total={total} max={max} />
+      ))}
+      {supplement > 0 && (
+        <BreakdownRow name="Supplements" amount={supplement} unit={unit} total={total} max={max} />
+      )}
+      {noData > 0 && (
+        <p className="text-[10px]" style={{ color: "var(--muted)" }}>
+          {noData} logged {noData === 1 ? "item has" : "items have"} no data for this nutrient.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function BreakdownRow({ name, detail, amount, unit, total, max }: {
+  name: string; detail?: string; amount: number; unit: string; total: number; max: number;
+}) {
+  return (
     <div>
       <div className="flex items-baseline justify-between gap-2">
         <p className="text-xs truncate min-w-0">
@@ -383,20 +493,6 @@ function MacroBreakdown({ entries, nutrientKey, unit, supplement }: {
         <div className="h-full rounded-full"
           style={{ width: `${max > 0 ? (amount / max) * 100 : 0}%`, background: "var(--accent)", opacity: 0.7 }} />
       </div>
-    </div>
-  );
-
-  return (
-    <div className="mt-2 pt-2.5 space-y-2" style={{ borderTop: "1px solid var(--border)" }}>
-      {rows.map((r) => (
-        <Row key={r.id} name={r.name} detail={`${Math.round(r.grams)} g`} amount={r.amount} />
-      ))}
-      {supplement > 0 && <Row name="Supplements" amount={supplement} />}
-      {noData > 0 && (
-        <p className="text-[10px]" style={{ color: "var(--muted)" }}>
-          {noData} logged {noData === 1 ? "item has" : "items have"} no data for this nutrient.
-        </p>
-      )}
     </div>
   );
 }

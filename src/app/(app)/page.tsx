@@ -31,6 +31,7 @@ export default function Dashboard() {
   const [nutSupp, setNutSupp] = useState<Record<string, number>>({});
   const [nutTargets, setNutTargets] = useState<NutrientTarget[]>([]);
   const [nutHasEntries, setNutHasEntries] = useState(false);
+  const [nutRefresh, setNutRefresh] = useState(0);
 
   useEffect(() => {
     Promise.all([
@@ -73,7 +74,8 @@ export default function Dashboard() {
       setNutTargets(Array.isArray(targets) ? targets : []);
       setNutSupp(supplementTotals(Array.isArray(supps) ? supps : []));
     });
-  }, []);
+    // nutRefresh: logging steps shifts today's calorie target → re-fetch.
+  }, [nutRefresh]);
 
   const todayKey = TODAY_KEYS[new Date().getDay()];
   const todayWorkout = workouts.find((w) => w.day_of_week === todayKey);
@@ -164,8 +166,8 @@ export default function Dashboard() {
         heavyLegs={todayWorkout?.label?.includes("Squat") ?? false}
       />
 
-      {/* Morning weigh-in */}
-      <WeightCard />
+      {/* Morning weigh-in + today's steps */}
+      <WeightCard onStepsLogged={() => setNutRefresh((k) => k + 1)} />
 
       {/* This week overview */}
       <div
@@ -297,16 +299,30 @@ function NutritionCard({
   );
 }
 
-function WeightCard() {
+function WeightCard({ onStepsLogged }: { onStepsLogged: () => void }) {
   const [weights, setWeights] = useState<BodyWeight[]>([]);
   const [input, setInput] = useState("");
   const [saving, setSaving] = useState(false);
+  const [stepsInput, setStepsInput] = useState("");
+  const [stepsSaved, setStepsSaved] = useState<number | null>(null);
+  const [stepsSaving, setStepsSaving] = useState(false);
 
   useEffect(() => {
     fetch("/api/nutrition/weight")
       .then((r) => r.json())
       .then((d) => setWeights(Array.isArray(d) ? d : []))
       .catch(() => setWeights([]));
+    const today = todayISO();
+    fetch(`/api/nutrition/steps?start=${today}&end=${today}`)
+      .then((r) => r.json())
+      .then((d) => {
+        const entry = Array.isArray(d) ? d[0] : null;
+        if (entry) {
+          setStepsSaved(entry.steps);
+          setStepsInput(String(entry.steps));
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const trend = weightTrend(weights.map((w) => ({ date: w.date, weight_kg: Number(w.weight_kg) })));
@@ -330,6 +346,24 @@ function WeightCard() {
         return [...others, saved].sort((a, b) => a.date.localeCompare(b.date));
       });
       setInput("");
+    }
+  }
+
+  const steps = parseInt(stepsInput, 10);
+  const stepsValid = Number.isInteger(steps) && steps >= 0;
+
+  async function logSteps() {
+    if (!stepsValid || stepsSaving) return;
+    setStepsSaving(true);
+    const res = await fetch("/api/nutrition/steps", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ steps }),
+    });
+    setStepsSaving(false);
+    if (res.ok) {
+      setStepsSaved(steps);
+      onStepsLogged();
     }
   }
 
@@ -376,6 +410,23 @@ function WeightCard() {
           className="px-5 rounded-xl font-semibold text-sm disabled:opacity-50"
           style={{ background: "var(--accent)", color: "#06281f" }}>
           {saving ? "…" : "Log"}
+        </button>
+      </div>
+
+      {/* Today's steps — feeds the activity-adjusted calorie target */}
+      <div className="flex gap-2 mt-2">
+        <input
+          type="text" inputMode="numeric" value={stepsInput}
+          onChange={(e) => setStepsInput(e.target.value.replace(/\D/g, ""))}
+          placeholder="Today's steps"
+          className="flex-1 h-11 px-3 rounded-xl text-sm outline-none tabular-nums"
+          style={{ background: "var(--surface-2)", color: "var(--foreground)", border: "1px solid var(--border)" }}
+        />
+        <button onClick={logSteps}
+          disabled={stepsSaving || !stepsValid || steps === stepsSaved}
+          className="px-5 rounded-xl font-semibold text-sm disabled:opacity-50"
+          style={{ background: "var(--accent)", color: "#06281f" }}>
+          {stepsSaving ? "…" : "Log"}
         </button>
       </div>
     </div>
