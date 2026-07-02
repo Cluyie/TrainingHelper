@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { PersonStanding, ChevronRight } from "lucide-react";
-import type { StretchingRoutine, UserSettings } from "@/types";
+import { PersonStanding, ChevronRight, Check } from "lucide-react";
+import type { StretchingRoutine, StretchingSession, UserSettings } from "@/types";
+import { todayISO } from "@/lib/nutrition-client";
 
 // Rotation: pick `count` routines for the week, starting at a week-based offset so
 // the selection rotates through the catalogue week to week. `count` follows the
@@ -29,6 +30,7 @@ function getWeekNumber(): number {
 export default function StretchingPage() {
   const router = useRouter();
   const [routines, setRoutines] = useState<StretchingRoutine[]>([]);
+  const [sessions, setSessions] = useState<StretchingSession[]>([]);
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -36,9 +38,11 @@ export default function StretchingPage() {
     Promise.all([
       fetch("/api/stretching?routines=1").then((r) => r.json()),
       fetch("/api/settings").then((r) => r.json()),
-    ]).then(([r, s]) => {
+      fetch("/api/stretching?sessions=1").then((r) => r.json()).catch(() => []),
+    ]).then(([r, s, sess]) => {
       setRoutines(r ?? []);
       setSettings(s);
+      setSessions(Array.isArray(sess) ? sess : []);
       setLoading(false);
     });
   }, []);
@@ -59,6 +63,17 @@ export default function StretchingPage() {
   const sessionsPerWeek = settings?.stretching_days_per_week ?? 3;
   const weekRoutines = getRoutinesForWeek(weekNum, routines, sessionsPerWeek);
 
+  // Done today per routine + how many sessions are done this week (Mon-start).
+  const today = todayISO();
+  const monday = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    return d.toISOString().split("T")[0];
+  })();
+  const doneToday = (routineId: string) =>
+    sessions.some((s) => s.routine_id === routineId && s.date === today && s.completed);
+  const doneThisWeek = sessions.filter((s) => s.completed && s.date >= monday).length;
+
   return (
     <div className="max-w-lg mx-auto px-4 py-6 space-y-5">
       <div className="flex items-center gap-3">
@@ -69,7 +84,11 @@ export default function StretchingPage() {
       <div className="rounded-2xl p-3 flex items-center justify-between"
         style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
         <span className="text-sm" style={{ color: "var(--muted)" }}>
-          This week&apos;s routines · {sessionsPerWeek}×
+          This week&apos;s routines ·{" "}
+          <span className="font-semibold"
+            style={{ color: doneThisWeek >= sessionsPerWeek ? "#10b981" : "var(--foreground)" }}>
+            {doneThisWeek}/{sessionsPerWeek} done
+          </span>
         </span>
         <span className="text-xs px-2 py-1 rounded-lg"
           style={{ background: "var(--surface-2)", color: "var(--muted)" }}>
@@ -79,16 +98,28 @@ export default function StretchingPage() {
 
       {/* This week's routines (count follows stretching_days_per_week) */}
       <div className="space-y-3">
-        {weekRoutines.map((routine, i) => {
+        {weekRoutines.map((routine) => {
           const exercises = routine.stretching_routine_exercises ?? [];
+          const done = doneToday(routine.id);
           return (
             <div key={routine.id}
               className="rounded-2xl overflow-hidden"
-              style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+              style={{
+                background: "var(--surface)",
+                border: `1px solid ${done ? "#10b98155" : "var(--border)"}`,
+              }}>
               <div className="p-4">
-                <div>
-                  <p className="font-bold">{routine.name}</p>
-                  <p className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>{routine.focus}</p>
+                <div className="flex items-center gap-2">
+                  <div>
+                    <p className="font-bold">{routine.name}</p>
+                    <p className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>{routine.focus}</p>
+                  </div>
+                  {done && (
+                    <span className="ml-auto flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md"
+                      style={{ background: "#10b981", color: "#fff" }}>
+                      <Check size={10} strokeWidth={3} /> DONE
+                    </span>
+                  )}
                 </div>
 
                 {/* Exercise list preview */}

@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Dumbbell, Home, ChevronRight, Play, Trophy } from "lucide-react";
-import type { PlannedWorkout } from "@/types";
+import { Dumbbell, Home, ChevronRight, Play, Trophy, Check } from "lucide-react";
+import type { PlannedWorkout, WorkoutSession } from "@/types";
+import { todayISO } from "@/lib/nutrition-client";
 
 const DAY_NAMES: Record<string, string> = {
   monday: "Monday", tuesday: "Tuesday", wednesday: "Wednesday",
@@ -15,6 +16,7 @@ const BLOCK_WEEKS = 6;
 
 export default function StrengthPage() {
   const [workouts, setWorkouts] = useState<PlannedWorkout[]>([]);
+  const [sessions, setSessions] = useState<WorkoutSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [cycle, setCycle] = useState<{ weekInBlock: number; isDeload: boolean } | null>(null);
   const [deloading, setDeloading] = useState(false);
@@ -28,6 +30,10 @@ export default function StrengthPage() {
       .then((r) => r.json())
       .then((s) => setCycle(s && typeof s.weekInBlock === "number" ? s : null))
       .catch(() => setCycle(null));
+    fetch("/api/sessions?limit=20")
+      .then((r) => r.json())
+      .then((d) => setSessions(Array.isArray(d) ? d : []))
+      .catch(() => setSessions([]));
   }, []);
 
   async function takeDeload() {
@@ -43,6 +49,17 @@ export default function StrengthPage() {
   }
 
   const todayKey = TODAY_KEYS[new Date().getDay()];
+  const today = todayISO();
+
+  // A workout is "done today" when a completed session from today links to it.
+  // Fallback: a session with a null plan link (the program was regenerated after
+  // logging — the FK is set null) still marks today's card as done.
+  const completedToday = sessions.filter((s) => s.date === today && s.completed_at);
+  const doneToday = (w: PlannedWorkout) =>
+    completedToday.some(
+      (s) => s.planned_workout_id === w.id ||
+        (s.planned_workout_id == null && w.day_of_week === todayKey)
+    );
 
   if (loading) return <Loader />;
 
@@ -70,6 +87,7 @@ export default function StrengthPage() {
       <div className="space-y-3">
         {workouts.map((w) => {
           const isToday = w.day_of_week === todayKey;
+          const done = doneToday(w);
           const exCount = w.planned_exercises?.length ?? 0;
           return (
             <Link
@@ -77,24 +95,29 @@ export default function StrengthPage() {
               href={`/strength/workout/${w.id}`}
               className="flex items-center justify-between p-4 rounded-2xl transition-all active:scale-98"
               style={{
-                background: isToday ? "var(--accent-dim)" : "var(--surface)",
-                border: `1px solid ${isToday ? "var(--accent)" : "var(--border)"}`,
+                background: done ? "#10b9811a" : isToday ? "var(--accent-dim)" : "var(--surface)",
+                border: `1px solid ${done ? "#10b98155" : isToday ? "var(--accent)" : "var(--border)"}`,
               }}
             >
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl flex items-center justify-center"
-                  style={{ background: w.is_home_workout ? "#10b98122" : "var(--surface-2)" }}>
-                  {isToday
-                    ? <Play size={18} style={{ color: w.is_home_workout ? "#10b981" : "var(--accent)" }} />
-                    : w.is_home_workout
-                      ? <Home size={16} style={{ color: "#10b981" }} />
-                      : <Dumbbell size={16} style={{ color: "var(--muted)" }} />
+                  style={{ background: done ? "#10b98122" : w.is_home_workout ? "#10b98122" : "var(--surface-2)" }}>
+                  {done
+                    ? <Check size={18} strokeWidth={3} style={{ color: "#10b981" }} />
+                    : isToday
+                      ? <Play size={18} style={{ color: w.is_home_workout ? "#10b981" : "var(--accent)" }} />
+                      : w.is_home_workout
+                        ? <Home size={16} style={{ color: "#10b981" }} />
+                        : <Dumbbell size={16} style={{ color: "var(--muted)" }} />
                   }
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
                     <p className="font-semibold text-sm">{w.label}</p>
-                    {isToday && (
+                    {done ? (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md"
+                        style={{ background: "#10b981", color: "#fff" }}>DONE ✓</span>
+                    ) : isToday && (
                       <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md"
                         style={{ background: w.is_home_workout ? "#10b981" : "var(--accent)", color: "#fff" }}>TODAY</span>
                     )}

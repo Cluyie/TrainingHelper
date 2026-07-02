@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Dumbbell, Wind, PersonStanding, ChevronRight, Flame, Calendar, Settings, AlertTriangle, Utensils, Scale, TrendingDown, TrendingUp } from "lucide-react";
-import type { PlannedWorkout, RunningSession, NutrientTarget, BodyWeight } from "@/types";
+import { Dumbbell, Wind, PersonStanding, ChevronRight, Flame, Calendar, Settings, AlertTriangle, Utensils, Scale, TrendingDown, TrendingUp, Check } from "lucide-react";
+import type { PlannedWorkout, RunningSession, NutrientTarget, BodyWeight, WorkoutSession } from "@/types";
 import { getRunSchedulingHint } from "@/lib/run-schedule";
 import { foodTotals, supplementTotals, targetMap, todayISO } from "@/lib/nutrition-client";
 import { weightTrend } from "@/lib/targets";
@@ -22,6 +22,7 @@ const TODAY_KEYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "fri
 export default function Dashboard() {
   const router = useRouter();
   const [workouts, setWorkouts] = useState<PlannedWorkout[]>([]);
+  const [sessions, setSessions] = useState<WorkoutSession[]>([]);
   const [nextRun, setNextRun] = useState<RunningSession | null>(null);
   const [vo2ThisWeek, setVo2ThisWeek] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -38,7 +39,9 @@ export default function Dashboard() {
       fetch("/api/settings").then((r) => r.json()),
       fetch("/api/workouts").then((r) => r.json()),
       fetch("/api/running").then((r) => r.json()),
-    ]).then(([s, w, runs]) => {
+      fetch("/api/sessions?limit=20").then((r) => r.json()).catch(() => []),
+    ]).then(([s, w, runs, sess]) => {
+      setSessions(Array.isArray(sess) ? sess : []);
       // First-time / incomplete profile → finish onboarding before using the app.
       const profileComplete =
         s && s.sex && s.birth_year && s.height_cm && s.activity_level && s.goal;
@@ -82,6 +85,26 @@ export default function Dashboard() {
   const weekWorkouts = workouts;
   const runHint = getRunSchedulingHint(workouts);
 
+  // "Done" per workout: a completed session this week (Mon-start) links to it.
+  // Null plan links (program regenerated after logging) count for today's card.
+  const today = todayISO();
+  const monday = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
+    return d.toISOString().split("T")[0];
+  })();
+  const completedThisWeek = sessions.filter((s) => s.completed_at && s.date >= monday);
+  const doneThisWeek = (w: PlannedWorkout) =>
+    completedThisWeek.some(
+      (s) => s.planned_workout_id === w.id ||
+        (s.planned_workout_id == null && s.date === today && w.day_of_week === todayKey)
+    );
+  const todayWorkoutDone = todayWorkout != null &&
+    completedThisWeek.some(
+      (s) => s.date === today &&
+        (s.planned_workout_id === todayWorkout.id || s.planned_workout_id == null)
+    );
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -107,13 +130,22 @@ export default function Dashboard() {
 
       {/* Today's workout */}
       {todayWorkout ? (
-        <TodayCard
-          title={`Today: ${todayWorkout.label}`}
-          subtitle={`${todayWorkout.planned_exercises?.length ?? 0} exercises`}
-          icon={<Dumbbell size={20} style={{ color: "var(--accent)" }} />}
-          href={`/strength/workout/${todayWorkout.id}`}
-          accent
-        />
+        todayWorkoutDone ? (
+          <TodayCard
+            title={`${todayWorkout.label} — done`}
+            subtitle="Completed today. Nice work 💪"
+            icon={<Check size={20} strokeWidth={3} style={{ color: "#10b981" }} />}
+            href={`/strength/workout/${todayWorkout.id}`}
+          />
+        ) : (
+          <TodayCard
+            title={`Today: ${todayWorkout.label}`}
+            subtitle={`${todayWorkout.planned_exercises?.length ?? 0} exercises`}
+            icon={<Dumbbell size={20} style={{ color: "var(--accent)" }} />}
+            href={`/strength/workout/${todayWorkout.id}`}
+            accent
+          />
+        )
       ) : (
         <div
           className="rounded-2xl p-4"
@@ -179,23 +211,28 @@ export default function Dashboard() {
           <span className="text-sm font-semibold">This Week</span>
         </div>
         <div className="space-y-2">
-          {weekWorkouts.map((w) => (
-            <Link
-              key={w.id}
-              href={`/strength/workout/${w.id}`}
-              className="flex items-center justify-between py-2 px-3 rounded-xl transition-all active:opacity-70"
-              style={{ background: w.day_of_week === todayKey ? "var(--accent-dim)" : "var(--surface-2)" }}
-            >
-              <div className="flex items-center gap-3">
-                <Dumbbell size={15} style={{ color: w.day_of_week === todayKey ? "var(--accent)" : "var(--muted)" }} />
-                <div>
-                  <p className="text-sm font-medium">{DAY_NAMES[w.day_of_week]}</p>
-                  <p className="text-xs" style={{ color: "var(--muted)" }}>{w.label}</p>
+          {weekWorkouts.map((w) => {
+            const done = doneThisWeek(w);
+            return (
+              <Link
+                key={w.id}
+                href={`/strength/workout/${w.id}`}
+                className="flex items-center justify-between py-2 px-3 rounded-xl transition-all active:opacity-70"
+                style={{ background: w.day_of_week === todayKey ? "var(--accent-dim)" : "var(--surface-2)" }}
+              >
+                <div className="flex items-center gap-3">
+                  {done
+                    ? <Check size={15} strokeWidth={3} style={{ color: "#10b981" }} />
+                    : <Dumbbell size={15} style={{ color: w.day_of_week === todayKey ? "var(--accent)" : "var(--muted)" }} />}
+                  <div>
+                    <p className="text-sm font-medium">{DAY_NAMES[w.day_of_week]}</p>
+                    <p className="text-xs" style={{ color: "var(--muted)" }}>{w.label}</p>
+                  </div>
                 </div>
-              </div>
-              <ChevronRight size={14} style={{ color: "var(--muted)" }} />
-            </Link>
-          ))}
+                <ChevronRight size={14} style={{ color: "var(--muted)" }} />
+              </Link>
+            );
+          })}
         </div>
       </div>
 
