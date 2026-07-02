@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, Minus, Plus, Check, ExternalLink, ChevronDown, ChevronUp } from "lucide-react";
-import type { PlannedWorkout, PlannedExercise, WorkoutSet, ProgressionSuggestion } from "@/types";
+import { ChevronLeft, ChevronRight, Minus, Plus, Check, ExternalLink, ChevronDown, ChevronUp, Sun } from "lucide-react";
+import type { PlannedWorkout, PlannedExercise, WorkoutSet, WorkoutSession, ProgressionSuggestion } from "@/types";
 import { getProgressionSuggestion } from "@/lib/progression";
 import { deloadSets, deloadWeight } from "@/lib/deload";
 
@@ -24,6 +24,8 @@ export default function WorkoutPage() {
   const [workout, setWorkout] = useState<PlannedWorkout | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
+  const [restored, setRestored] = useState(false);
+  const positionedRef = useRef(false);
   const [currentExIdx, setCurrentExIdx] = useState(0);
   const [sets, setSets] = useState<Record<string, WorkoutSet[]>>({});
   const [suggestions, setSuggestions] = useState<Record<string, ProgressionSuggestion>>({});
@@ -36,6 +38,50 @@ export default function WorkoutPage() {
   const [showDescription, setShowDescription] = useState(false);
   const [logging, setLogging] = useState(false);
   const [deload, setDeload] = useState(false);
+  const [keepAwake, setKeepAwake] = useState(false);
+  const [wakeLockSupported, setWakeLockSupported] = useState(false);
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+
+  useEffect(() => {
+    setWakeLockSupported("wakeLock" in navigator);
+    if (localStorage.getItem("keepScreenAwake") === "1") setKeepAwake(true);
+  }, []);
+
+  useEffect(() => {
+    if (!keepAwake || !("wakeLock" in navigator)) return;
+    let cancelled = false;
+    const acquire = async () => {
+      try {
+        const lock = await navigator.wakeLock.request("screen");
+        if (cancelled) {
+          lock.release().catch(() => {});
+          return;
+        }
+        wakeLockRef.current = lock;
+      } catch {
+        /* denied, e.g. battery saver mode */
+      }
+    };
+    acquire();
+    // The browser releases the lock when the tab is hidden; re-acquire on return.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") acquire();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener("visibilitychange", onVisible);
+      wakeLockRef.current?.release().catch(() => {});
+      wakeLockRef.current = null;
+    };
+  }, [keepAwake]);
+
+  function toggleKeepAwake() {
+    setKeepAwake((v) => {
+      localStorage.setItem("keepScreenAwake", v ? "0" : "1");
+      return !v;
+    });
+  }
 
   useEffect(() => {
     fetch("/api/strength/cycle")
@@ -46,14 +92,57 @@ export default function WorkoutPage() {
 
   useEffect(() => {
     if (!id) return;
-    fetch("/api/workouts")
-      .then((r) => r.json())
-      .then((ws: PlannedWorkout[]) => {
-        const w = ws.find((x) => x.id === id);
-        setWorkout(w ?? null);
-        setLoading(false);
-      });
+    let cancelled = false;
+    (async () => {
+      const ws: PlannedWorkout[] = await fetch("/api/workouts").then((r) => r.json());
+      const w = ws.find((x) => x.id === id) ?? null;
+      if (cancelled) return;
+      setWorkout(w);
+
+      // Resume an in-progress session for this workout if one exists (e.g. the
+      // user navigated away mid-session). Sets are already persisted server-side.
+      try {
+        const sessions: WorkoutSession[] = await fetch(
+          `/api/sessions?workout_id=${id}&limit=10`,
+        ).then((r) => r.json());
+        const today = new Date().toISOString().split("T")[0];
+        const active = Array.isArray(sessions)
+          ? sessions.find((s) => !s.completed_at && s.date === today)
+          : undefined;
+        if (active && !cancelled) {
+          sessionIdRef.current = active.id;
+          setSessionId(active.id);
+          const loggedSets: WorkoutSet[] = await fetch(
+            `/api/sets?session_id=${active.id}`,
+          ).then((r) => r.json());
+          if (cancelled) return;
+          const grouped: Record<string, WorkoutSet[]> = {};
+          for (const s of loggedSets) (grouped[s.exercise_id] ??= []).push(s);
+          setSets(grouped);
+        }
+      } catch {
+        /* fresh session — nothing to restore */
+      }
+      if (cancelled) return;
+      setRestored(true);
+      setLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [id]);
+
+  // Once a restore has completed, jump to the first exercise that isn't finished
+  // so the user lands where they left off (runs once).
+  useEffect(() => {
+    if (!restored || positionedRef.current || !workout?.planned_exercises) return;
+    positionedRef.current = true;
+    const exs = workout.planned_exercises;
+    const idx = exs.findIndex(
+      (pe) => (sets[pe.exercise_id]?.length ?? 0) < (deload ? deloadSets(pe.target_sets) : pe.target_sets),
+    );
+    setCurrentExIdx(idx === -1 ? exs.length - 1 : idx);
+  }, [restored, workout, sets, deload]);
 
   useEffect(() => {
     if (!workout?.planned_exercises) return;
@@ -176,9 +265,20 @@ export default function WorkoutPage() {
         <div className="text-center">
           <p className="text-xs font-semibold" style={{ color: "var(--muted)" }}>{workout.label}</p>
         </div>
-        <div className="text-xs font-medium px-2 py-1 rounded-lg"
-          style={{ background: "var(--surface-2)", color: "var(--muted)" }}>
-          {currentExIdx + 1}/{exercises.length}
+        <div className="flex items-center gap-1.5">
+          {wakeLockSupported && (
+            <button onClick={toggleKeepAwake} title={keepAwake ? "Screen stays on" : "Keep screen on"}
+              className="w-9 h-9 rounded-xl flex items-center justify-center transition-colors"
+              style={keepAwake
+                ? { background: "#f59e0b22", color: "#f59e0b" }
+                : { background: "var(--surface-2)", color: "var(--muted)" }}>
+              <Sun size={16} />
+            </button>
+          )}
+          <div className="text-xs font-medium px-2 py-1 rounded-lg"
+            style={{ background: "var(--surface-2)", color: "var(--muted)" }}>
+            {currentExIdx + 1}/{exercises.length}
+          </div>
         </div>
       </div>
 
