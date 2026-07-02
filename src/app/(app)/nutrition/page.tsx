@@ -175,6 +175,8 @@ function DayView({
   onAdd: () => void;
   onDelete: (id: string) => void;
 }) {
+  const [openKey, setOpenKey] = useState<string | null>(null);
+
   if (loading) return <Loader />;
 
   // Fat budget: with protein + carbs set, fat is the macro that balances calories.
@@ -200,18 +202,29 @@ function DayView({
         {TIER1.map((n) => {
           const t = tMap[n.key];
           const enforce = n.key === "net_carbs_g" ? t?.enabled !== false : true;
+          const open = openKey === n.key;
           return (
             <div key={n.key} className="rounded-2xl px-4 py-3"
               style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
-              <NutrientBar
-                label={n.key === "net_carbs_g" && !enforce ? `${n.label} (no limit)` : n.label}
-                unit={n.unit}
-                food={food[n.key] ?? null}
-                supplement={suppMap[n.key] ?? 0}
-                target={t?.target_amount ?? n.defaultTarget}
-                direction={t?.direction ?? n.direction}
-                enforce={enforce}
-              />
+              <button onClick={() => setOpenKey(open ? null : n.key)} className="w-full text-left">
+                <NutrientBar
+                  label={n.key === "net_carbs_g" && !enforce ? `${n.label} (no limit)` : n.label}
+                  unit={n.unit}
+                  food={food[n.key] ?? null}
+                  supplement={suppMap[n.key] ?? 0}
+                  target={t?.target_amount ?? n.defaultTarget}
+                  direction={t?.direction ?? n.direction}
+                  enforce={enforce}
+                />
+              </button>
+              {open && (
+                <MacroBreakdown
+                  entries={entries}
+                  nutrientKey={n.key}
+                  unit={n.unit}
+                  supplement={suppMap[n.key] ?? 0}
+                />
+              )}
             </div>
           );
         })}
@@ -318,6 +331,72 @@ function DayView({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ---------------- Macro breakdown (tap a Tier-1 bar) ----------------
+
+function MacroBreakdown({ entries, nutrientKey, unit, supplement }: {
+  entries: FoodLogEntry[];
+  nutrientKey: string;
+  unit: string;
+  supplement: number;
+}) {
+  const rows = entries
+    .map((e) => ({
+      id: e.id,
+      name: e.food_name,
+      grams: e.quantity_g,
+      amount: e.nutrients?.[nutrientKey] ?? null,
+    }))
+    .filter((r): r is typeof r & { amount: number } => r.amount != null && r.amount > 0)
+    .sort((a, b) => b.amount - a.amount);
+
+  const noData = entries.filter((e) => e.nutrients?.[nutrientKey] == null).length;
+  const total = rows.reduce((s, r) => s + r.amount, 0) + supplement;
+  const max = Math.max(rows[0]?.amount ?? 0, supplement);
+
+  if (rows.length === 0 && supplement <= 0) {
+    return (
+      <p className="text-xs mt-2 pt-2" style={{ color: "var(--muted)", borderTop: "1px solid var(--border)" }}>
+        No logged food contributes to this today.
+      </p>
+    );
+  }
+
+  const Row = ({ name, detail, amount }: { name: string; detail?: string; amount: number }) => (
+    <div>
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="text-xs truncate min-w-0">
+          {name}
+          {detail && <span style={{ color: "var(--muted)" }}> · {detail}</span>}
+        </p>
+        <p className="text-xs tabular-nums shrink-0">
+          <span className="font-semibold">{fmt(amount, unit)} {unit}</span>
+          <span className="ml-1.5" style={{ color: "var(--muted)" }}>
+            {total > 0 ? Math.round((amount / total) * 100) : 0}%
+          </span>
+        </p>
+      </div>
+      <div className="h-1 rounded-full mt-1 overflow-hidden" style={{ background: "var(--surface-2)" }}>
+        <div className="h-full rounded-full"
+          style={{ width: `${max > 0 ? (amount / max) * 100 : 0}%`, background: "var(--accent)", opacity: 0.7 }} />
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="mt-2 pt-2.5 space-y-2" style={{ borderTop: "1px solid var(--border)" }}>
+      {rows.map((r) => (
+        <Row key={r.id} name={r.name} detail={`${Math.round(r.grams)} g`} amount={r.amount} />
+      ))}
+      {supplement > 0 && <Row name="Supplements" amount={supplement} />}
+      {noData > 0 && (
+        <p className="text-[10px]" style={{ color: "var(--muted)" }}>
+          {noData} logged {noData === 1 ? "item has" : "items have"} no data for this nutrient.
+        </p>
+      )}
     </div>
   );
 }
