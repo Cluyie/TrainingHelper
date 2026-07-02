@@ -146,7 +146,8 @@ const GYM_TEMPLATES = [
 // at home via the row + Prone Y-T-W.
 //
 // Home A — Push, Pull & Core
-//   Push-Up: best upper-body bodyweight compound. Pike Push-Up adds the vertical press.
+//   Push-Up: best upper-body bodyweight compound. Incline Pike Push-Up adds the vertical
+//   press (hands elevated — the floor pike position wasn't accessible; progress downward).
 //   Inverted Row: the missing home horizontal pull — balances all the pushing.
 //   Ab Wheel Rollout: the hardest anti-extension core exercise (needs only an ab wheel).
 //   Plank + Dead Bug: McGill's top anti-extension exercises.
@@ -163,7 +164,7 @@ const GYM_TEMPLATES = [
 const HOME_A_SLOTS: ExerciseSlot[] = [
   slot("power", 3, 3, 5, 0,   { preferredExercise: "Broad Jump" }),
   slot("push",  3, 8, 15, 0,  { preferredExercise: "Push-Up" }),
-  slot("push",  3, 8, 12, 0,  { preferredExercise: "Pike Push-Up" }),
+  slot("push",  3, 8, 12, 0,  { preferredExercise: "Incline Pike Push-Up" }),
   slot("pull",  3, 8, 12, 0,  { preferredExercise: "Inverted Row" }),
   slot("core",  3, 6, 10, 0,  { preferredExercise: "Ab Wheel Rollout" }),
   slot("core",  3, 30, 60, 0, { preferredExercise: "Plank" }),

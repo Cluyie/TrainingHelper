@@ -185,6 +185,17 @@ export const EXERCISES = [
     muscle_groups: ["front_delts", "triceps", "upper_chest"],
   },
   {
+    name: "Incline Pike Push-Up",
+    category: "push",
+    equipment: ["bodyweight"],
+    phase_unlock: 1,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: true,
+    description: "Hands on a chair seat, sofa arm or sturdy table, walk feet back and push hips up into a V, head between arms. Bend elbows to lower the crown of your head toward the surface, press back up. The accessible version of the pike push-up — far less inversion, no wrist/balance demands. Progress by using a lower surface until the floor version works.",
+    muscle_groups: ["front_delts", "triceps", "upper_chest"],
+  },
+  {
     name: "Barbell Bench Press",
     category: "push",
     equipment: ["barbell"],
