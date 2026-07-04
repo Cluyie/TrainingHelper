@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Utensils, Settings, Plus, ChevronLeft, ChevronRight,
-  ChevronDown, Trash2, AlertTriangle, BookOpen, Droplet, Tag, Footprints,
+  ChevronDown, Trash2, AlertTriangle, BookOpen, Droplet, Tag,
 } from "lucide-react";
 import {
   TIER1, byGroup, GROUP_ORDER, GROUP_LABELS, NUTRIENT_MAP,
@@ -28,7 +28,6 @@ export default function NutritionPage() {
   const [supps, setSupps] = useState<Supplement[]>([]);
   const [targets, setTargets] = useState<NutrientTarget[]>([]);
   const [activity, setActivity] = useState<ActivityAdjustment | null>(null);
-  const [targetsRefresh, setTargetsRefresh] = useState(0);
   const [loading, setLoading] = useState(true);
   const [tier2Open, setTier2Open] = useState(false);
 
@@ -40,7 +39,7 @@ export default function NutritionPage() {
   }, []);
 
   // targets are per-day: the calorie target shifts with that day's activity
-  // (runs, strength, steps). Re-fetched when the date changes or steps are saved.
+  // (runs, strength, steps — steps are entered on the home dashboard).
   useEffect(() => {
     Promise.all([
       fetch(`/api/nutrition/targets?date=${date}`).then((r) => r.json()),
@@ -49,7 +48,7 @@ export default function NutritionPage() {
       setTargets(Array.isArray(t) ? t : []);
       setActivity(m?.activity ?? null);
     });
-  }, [date, targetsRefresh]);
+  }, [date]);
 
   // day entries
   useEffect(() => {
@@ -152,7 +151,6 @@ export default function NutritionPage() {
       {view === "day" ? (
         <DayView
           loading={loading}
-          date={date}
           entries={entries}
           food={food}
           suppMap={suppMap}
@@ -161,7 +159,6 @@ export default function NutritionPage() {
           tier2Open={tier2Open}
           setTier2Open={setTier2Open}
           onAdd={() => router.push(`/nutrition/add?date=${date}`)}
-          onStepsSaved={() => setTargetsRefresh((k) => k + 1)}
           onDelete={async (id) => {
             await fetch(`/api/nutrition/log?id=${id}`, { method: "DELETE" });
             setEntries((prev) => prev.filter((e) => e.id !== id));
@@ -179,11 +176,10 @@ export default function NutritionPage() {
 // ---------------- Day view ----------------
 
 function DayView({
-  loading, date, entries, food, suppMap, tMap, activity, tier2Open, setTier2Open,
-  onAdd, onStepsSaved, onDelete,
+  loading, entries, food, suppMap, tMap, activity, tier2Open, setTier2Open,
+  onAdd, onDelete,
 }: {
   loading: boolean;
-  date: string;
   entries: FoodLogEntry[];
   food: Record<string, number | null>;
   suppMap: Record<string, number>;
@@ -192,7 +188,6 @@ function DayView({
   tier2Open: boolean;
   setTier2Open: (v: boolean) => void;
   onAdd: () => void;
-  onStepsSaved: () => void;
   onDelete: (id: string) => void;
 }) {
   const [openKey, setOpenKey] = useState<string | null>(null);
@@ -246,7 +241,7 @@ function DayView({
                 </p>
               )}
               {open && (
-                <MacroBreakdown
+                <NutrientBreakdown
                   entries={entries}
                   nutrientKey={n.key}
                   unit={n.unit}
@@ -287,14 +282,6 @@ function DayView({
         </div>
       )}
 
-      {/* Daily steps — the NEAT signal for the activity-adjusted calorie target */}
-      <StepsQuickEntry
-        key={`${date}:${activity?.stepsToday ?? ""}`}
-        date={date}
-        initial={activity?.stepsToday ?? null}
-        onSaved={onStepsSaved}
-      />
-
       {/* Tier 2 — healthspan metrics dropdown */}
       <div className="rounded-2xl overflow-hidden"
         style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
@@ -316,17 +303,31 @@ function DayView({
                 </p>
                 {byGroup(group).map((n) => {
                   const t = tMap[n.key];
+                  const open = openKey === n.key;
                   return (
-                    <NutrientBar
-                      key={n.key}
-                      label={n.label}
-                      unit={n.unit}
-                      food={food[n.key] ?? null}
-                      supplement={suppMap[n.key] ?? 0}
-                      target={t?.target_amount ?? n.defaultTarget}
-                      direction={t?.direction ?? n.direction}
-                      compact
-                    />
+                    <div key={n.key}>
+                      <button onClick={() => setOpenKey(open ? null : n.key)} className="w-full text-left">
+                        <NutrientBar
+                          label={n.label}
+                          unit={n.unit}
+                          food={food[n.key] ?? null}
+                          supplement={suppMap[n.key] ?? 0}
+                          target={t?.target_amount ?? n.defaultTarget}
+                          direction={t?.direction ?? n.direction}
+                          compact
+                        />
+                      </button>
+                      {open && (
+                        <div className="mb-3">
+                          <NutrientBreakdown
+                            entries={entries}
+                            nutrientKey={n.key}
+                            unit={n.unit}
+                            supplement={suppMap[n.key] ?? 0}
+                          />
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -371,62 +372,11 @@ function DayView({
   );
 }
 
-// ---------------- Daily steps entry ----------------
+// ---------------- Nutrient breakdown (tap any bar) ----------------
 
-// Keyed on date+initial by the caller, so changing day (or the entry arriving
-// from the meta fetch) remounts with a fresh prefill instead of a sync effect.
-function StepsQuickEntry({ initial, date, onSaved }: {
-  date: string;
-  initial: number | null;
-  onSaved: () => void;
-}) {
-  const [input, setInput] = useState(initial != null ? String(initial) : "");
-  const [saving, setSaving] = useState(false);
-
-  const steps = parseInt(input, 10);
-  const valid = Number.isInteger(steps) && steps >= 0;
-
-  async function save() {
-    if (!valid || saving) return;
-    setSaving(true);
-    const res = await fetch("/api/nutrition/steps", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ steps, date }),
-    });
-    setSaving(false);
-    if (res.ok) onSaved();
-  }
-
-  return (
-    <div className="rounded-2xl px-4 py-3 flex items-center gap-3"
-      style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
-      <Footprints size={18} style={{ color: "var(--accent)" }} />
-      <div className="min-w-0">
-        <p className="text-sm font-medium">Steps</p>
-        <p className="text-[11px]" style={{ color: "var(--muted)" }}>
-          From your phone — run steps are deducted automatically
-        </p>
-      </div>
-      <input
-        type="text" inputMode="numeric" value={input}
-        onChange={(e) => setInput(e.target.value.replace(/\D/g, ""))}
-        placeholder="0"
-        className="flex-1 h-10 px-3 rounded-xl text-sm text-right outline-none tabular-nums min-w-0"
-        style={{ background: "var(--surface-2)", color: "var(--foreground)", border: "1px solid var(--border)" }}
-      />
-      <button onClick={save} disabled={saving || !valid || (initial != null && steps === initial)}
-        className="px-4 h-10 rounded-xl font-semibold text-sm disabled:opacity-40 shrink-0"
-        style={{ background: "var(--accent)", color: "#06281f" }}>
-        {saving ? "…" : "Save"}
-      </button>
-    </div>
-  );
-}
-
-// ---------------- Macro breakdown (tap a Tier-1 bar) ----------------
-
-function MacroBreakdown({ entries, nutrientKey, unit, supplement }: {
+// Which logged foods (and supplements) contribute to a nutrient today —
+// the audit trail for "why is this number so high?".
+function NutrientBreakdown({ entries, nutrientKey, unit, supplement }: {
   entries: FoodLogEntry[];
   nutrientKey: string;
   unit: string;

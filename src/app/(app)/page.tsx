@@ -3,10 +3,10 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Dumbbell, Wind, PersonStanding, ChevronRight, Flame, Calendar, Settings, AlertTriangle, Utensils, Scale, TrendingDown, TrendingUp, Check } from "lucide-react";
+import { Dumbbell, Wind, PersonStanding, ChevronRight, Flame, Calendar, Settings, AlertTriangle, Utensils, Scale, TrendingDown, TrendingUp, Check, Footprints } from "lucide-react";
 import type { PlannedWorkout, RunningSession, NutrientTarget, BodyWeight, WorkoutSession } from "@/types";
 import { getRunSchedulingHint } from "@/lib/run-schedule";
-import { foodTotals, supplementTotals, targetMap, todayISO } from "@/lib/nutrition-client";
+import { foodTotals, supplementTotals, targetMap, todayISO, toISODate, shiftDate } from "@/lib/nutrition-client";
 import { weightTrend } from "@/lib/targets";
 import { NUTRIENT_MAP } from "@/lib/nutrients";
 import NutrientBar from "@/components/nutrition/NutrientBar";
@@ -91,7 +91,7 @@ export default function Dashboard() {
   const monday = (() => {
     const d = new Date();
     d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
-    return d.toISOString().split("T")[0];
+    return toISODate(d);
   })();
   const completedThisWeek = sessions.filter((s) => s.completed_at && s.date >= monday);
   const doneThisWeek = (w: PlannedWorkout) =>
@@ -200,6 +200,9 @@ export default function Dashboard() {
 
       {/* Morning weigh-in + today's steps */}
       <WeightCard onStepsLogged={() => setNutRefresh((k) => k + 1)} />
+
+      {/* Reminder: yesterday's steps were never entered */}
+      <StepsBackfillCard onLogged={() => setNutRefresh((k) => k + 1)} />
 
       {/* This week overview */}
       <div
@@ -336,33 +339,36 @@ function NutritionCard({
   );
 }
 
+// Daily check-in: weight + steps. Each row is a clear binary — a green ✓ with
+// the saved value once today's entry exists, or the input while it doesn't —
+// so there's never doubt about whether today is registered.
 function WeightCard({ onStepsLogged }: { onStepsLogged: () => void }) {
+  const today = todayISO();
   const [weights, setWeights] = useState<BodyWeight[]>([]);
   const [input, setInput] = useState("");
   const [saving, setSaving] = useState(false);
+  const [editingWeight, setEditingWeight] = useState(false);
   const [stepsInput, setStepsInput] = useState("");
   const [stepsSaved, setStepsSaved] = useState<number | null>(null);
   const [stepsSaving, setStepsSaving] = useState(false);
+  const [editingSteps, setEditingSteps] = useState(false);
 
   useEffect(() => {
     fetch("/api/nutrition/weight")
       .then((r) => r.json())
       .then((d) => setWeights(Array.isArray(d) ? d : []))
       .catch(() => setWeights([]));
-    const today = todayISO();
     fetch(`/api/nutrition/steps?start=${today}&end=${today}`)
       .then((r) => r.json())
       .then((d) => {
         const entry = Array.isArray(d) ? d[0] : null;
-        if (entry) {
-          setStepsSaved(entry.steps);
-          setStepsInput(String(entry.steps));
-        }
+        if (entry) setStepsSaved(entry.steps);
       })
       .catch(() => {});
-  }, []);
+  }, [today]);
 
   const trend = weightTrend(weights.map((w) => ({ date: w.date, weight_kg: Number(w.weight_kg) })));
+  const todayWeight = weights.find((w) => w.date === today);
 
   // Accept both "90.5" and "90,5" — Danish keyboards produce a comma.
   const kg = Number(input.replace(",", "."));
@@ -373,7 +379,7 @@ function WeightCard({ onStepsLogged }: { onStepsLogged: () => void }) {
     const res = await fetch("/api/nutrition/weight", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ weight_kg: kg }),
+      body: JSON.stringify({ weight_kg: kg, date: today }),
     });
     setSaving(false);
     if (res.ok) {
@@ -383,6 +389,7 @@ function WeightCard({ onStepsLogged }: { onStepsLogged: () => void }) {
         return [...others, saved].sort((a, b) => a.date.localeCompare(b.date));
       });
       setInput("");
+      setEditingWeight(false);
     }
   }
 
@@ -395,11 +402,12 @@ function WeightCard({ onStepsLogged }: { onStepsLogged: () => void }) {
     const res = await fetch("/api/nutrition/steps", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ steps }),
+      body: JSON.stringify({ steps, date: today }),
     });
     setStepsSaving(false);
     if (res.ok) {
       setStepsSaved(steps);
+      setEditingSteps(false);
       onStepsLogged();
     }
   }
@@ -410,7 +418,7 @@ function WeightCard({ onStepsLogged }: { onStepsLogged: () => void }) {
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
           <Scale size={16} style={{ color: "var(--accent)" }} />
-          <span className="text-sm font-semibold">Weight</span>
+          <span className="text-sm font-semibold">Daily Check-in</span>
         </div>
         {trend.current != null && (
           <div className="flex items-center gap-2">
@@ -435,35 +443,147 @@ function WeightCard({ onStepsLogged }: { onStepsLogged: () => void }) {
         </p>
       )}
 
+      {/* Weight — morning weigh-in */}
+      {todayWeight && !editingWeight ? (
+        <DoneRow
+          label="Weight"
+          value={`${Number(todayWeight.weight_kg).toFixed(1)} kg`}
+          onEdit={() => {
+            setInput(String(todayWeight.weight_kg));
+            setEditingWeight(true);
+          }}
+        />
+      ) : (
+        <div className="flex gap-2">
+          <input
+            type="text" inputMode="decimal" value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Today's weight (kg)"
+            className="flex-1 h-11 px-3 rounded-xl text-sm outline-none"
+            style={{ background: "var(--surface-2)", color: "var(--foreground)", border: "1px solid var(--border)" }}
+          />
+          <button onClick={log} disabled={saving || !kg || kg <= 0}
+            className="px-5 rounded-xl font-semibold text-sm disabled:opacity-50"
+            style={{ background: "var(--accent)", color: "#06281f" }}>
+            {saving ? "…" : "Log"}
+          </button>
+        </div>
+      )}
+
+      {/* Today's steps — feeds the activity-adjusted calorie target */}
+      <div className="mt-2">
+        {stepsSaved != null && !editingSteps ? (
+          <DoneRow
+            label="Steps"
+            value={stepsSaved.toLocaleString("en-GB")}
+            onEdit={() => {
+              setStepsInput(String(stepsSaved));
+              setEditingSteps(true);
+            }}
+          />
+        ) : (
+          <div className="flex gap-2">
+            <input
+              type="text" inputMode="numeric" value={stepsInput}
+              onChange={(e) => setStepsInput(e.target.value.replace(/\D/g, ""))}
+              placeholder="Today's steps"
+              className="flex-1 h-11 px-3 rounded-xl text-sm outline-none tabular-nums"
+              style={{ background: "var(--surface-2)", color: "var(--foreground)", border: "1px solid var(--border)" }}
+            />
+            <button onClick={logSteps}
+              disabled={stepsSaving || !stepsValid || steps === stepsSaved}
+              className="px-5 rounded-xl font-semibold text-sm disabled:opacity-50"
+              style={{ background: "var(--accent)", color: "#06281f" }}>
+              {stepsSaving ? "…" : "Log"}
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Reminder card that only exists while yesterday has no steps entry — a
+// missed day is neutral in the calorie redistribution, but a backfilled one
+// makes the trailing window (and today's target) more accurate.
+function StepsBackfillCard({ onLogged }: { onLogged: () => void }) {
+  const yesterday = shiftDate(todayISO(), -1);
+  const [missing, setMissing] = useState(false);
+  const [input, setInput] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch(`/api/nutrition/steps?start=${yesterday}&end=${yesterday}`)
+      .then((r) => r.json())
+      .then((d) => setMissing(!(Array.isArray(d) && d.length > 0)))
+      .catch(() => {});
+  }, [yesterday]);
+
+  const steps = parseInt(input, 10);
+  const valid = Number.isInteger(steps) && steps >= 0;
+
+  async function log() {
+    if (!valid || saving) return;
+    setSaving(true);
+    const res = await fetch("/api/nutrition/steps", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ steps, date: yesterday }),
+    });
+    setSaving(false);
+    if (res.ok) {
+      setMissing(false);
+      onLogged();
+    }
+  }
+
+  if (!missing) return null;
+
+  const dayLabel = new Date(yesterday + "T00:00:00").toLocaleDateString("en-GB", {
+    weekday: "short", day: "numeric", month: "short",
+  });
+  return (
+    <div className="rounded-2xl p-4"
+      style={{ background: "var(--surface)", border: "1px solid rgba(245,158,11,0.35)" }}>
+      <div className="flex items-center gap-2 mb-1">
+        <Footprints size={16} style={{ color: "#f59e0b" }} />
+        <span className="text-sm font-semibold">Yesterday&apos;s steps missing</span>
+      </div>
+      <p className="text-xs mb-3" style={{ color: "var(--muted)" }}>
+        {dayLabel} has no step count yet — check your phone and fill it in.
+      </p>
       <div className="flex gap-2">
         <input
-          type="text" inputMode="decimal" value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Today's weight (kg)"
-          className="flex-1 h-11 px-3 rounded-xl text-sm outline-none"
+          type="text" inputMode="numeric" value={input}
+          onChange={(e) => setInput(e.target.value.replace(/\D/g, ""))}
+          placeholder={`Steps for ${dayLabel}`}
+          className="flex-1 h-11 px-3 rounded-xl text-sm outline-none tabular-nums"
           style={{ background: "var(--surface-2)", color: "var(--foreground)", border: "1px solid var(--border)" }}
         />
-        <button onClick={log} disabled={saving || !kg || kg <= 0}
+        <button onClick={log} disabled={saving || !valid}
           className="px-5 rounded-xl font-semibold text-sm disabled:opacity-50"
           style={{ background: "var(--accent)", color: "#06281f" }}>
           {saving ? "…" : "Log"}
         </button>
       </div>
+    </div>
+  );
+}
 
-      {/* Today's steps — feeds the activity-adjusted calorie target */}
-      <div className="flex gap-2 mt-2">
-        <input
-          type="text" inputMode="numeric" value={stepsInput}
-          onChange={(e) => setStepsInput(e.target.value.replace(/\D/g, ""))}
-          placeholder="Today's steps"
-          className="flex-1 h-11 px-3 rounded-xl text-sm outline-none tabular-nums"
-          style={{ background: "var(--surface-2)", color: "var(--foreground)", border: "1px solid var(--border)" }}
-        />
-        <button onClick={logSteps}
-          disabled={stepsSaving || !stepsValid || steps === stepsSaved}
-          className="px-5 rounded-xl font-semibold text-sm disabled:opacity-50"
-          style={{ background: "var(--accent)", color: "#06281f" }}>
-          {stepsSaving ? "…" : "Log"}
+// A registered-today row: green check + value, with an Edit affordance.
+function DoneRow({ label, value, onEdit }: { label: string; value: string; onEdit: () => void }) {
+  return (
+    <div className="flex items-center justify-between h-11 px-3 rounded-xl"
+      style={{ background: "var(--surface-2)", border: "1px solid var(--border)" }}>
+      <div className="flex items-center gap-2">
+        <Check size={15} strokeWidth={3} style={{ color: "#10b981" }} />
+        <span className="text-sm font-medium">{label}</span>
+      </div>
+      <div className="flex items-center gap-3">
+        <span className="text-sm font-semibold tabular-nums">{value}</span>
+        <button onClick={onEdit} className="text-xs font-semibold px-1 py-2"
+          style={{ color: "var(--muted)" }}>
+          Edit
         </button>
       </div>
     </div>
