@@ -106,7 +106,11 @@ export function stepsKcal(weightKg: number, steps: number, runKmSameDay: number)
 function shiftDate(iso: string, days: number): string {
   const d = new Date(iso + "T00:00:00");
   d.setDate(d.getDate() + days);
-  return d.toISOString().split("T")[0];
+  // Format in local time — toISOString() is UTC and shifts the date in
+  // ahead-of-UTC timezones (local dev; prod servers run UTC either way).
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
 }
 const round10 = (n: number) => Math.round(n / 10) * 10;
 

@@ -111,14 +111,23 @@ export function weeklyStats(
   });
 }
 
+/** Format a Date as YYYY-MM-DD in *local* time. `toISOString()` is UTC, so in
+ * timezones ahead of UTC local midnight lands on the previous UTC day —
+ * `shiftDate(d, +1)` would return `d` unchanged and `-1` would jump 2 days. */
+export function toISODate(d: Date): string {
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
+}
+
 export function todayISO(): string {
-  return new Date().toISOString().split("T")[0];
+  return toISODate(new Date());
 }
 
 export function shiftDate(iso: string, days: number): string {
   const d = new Date(iso + "T00:00:00");
   d.setDate(d.getDate() + days);
-  return d.toISOString().split("T")[0];
+  return toISODate(d);
 }
 
 export function formatDateLabel(iso: string): string {

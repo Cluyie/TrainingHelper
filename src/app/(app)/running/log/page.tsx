@@ -3,6 +3,7 @@
 import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Wind, CheckCircle2 } from "lucide-react";
+import { todayISO } from "@/lib/nutrition-client";
 import type { RunningSession } from "@/types";
 
 function LogRunForm() {
@@ -36,7 +37,7 @@ function LogRunForm() {
       body: JSON.stringify({
         id: sessionId,
         completed: true,
-        date: new Date().toISOString().split("T")[0],
+        date: todayISO(),
         actual_duration_min: parseInt(duration),
         actual_distance_km: distance ? parseFloat(distance) : null,
         notes: notes || null,

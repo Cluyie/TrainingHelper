@@ -25,7 +25,11 @@ export const dynamic = "force-dynamic";
 function shiftDays(iso: string, days: number): string {
   const d = new Date(iso + "T00:00:00");
   d.setDate(d.getDate() + days);
-  return d.toISOString().split("T")[0];
+  // Local-time formatting — toISOString() is UTC and shifts the date in
+  // ahead-of-UTC timezones (local dev; prod servers run UTC either way).
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${m}-${day}`;
 }
 
 // Load profile + recent weigh-ins + per-day calories, then run the adaptive

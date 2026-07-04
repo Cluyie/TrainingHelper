@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Search, Plus, ChevronLeft, CheckCircle2, Clock, Pencil, Check, BookOpen, Tag } from "lucide-react";
 import { TIER1 } from "@/lib/nutrients";
-import { fmt } from "@/lib/nutrition-client";
+import { fmt, todayISO } from "@/lib/nutrition-client";
 import type { FoodSearchResult, FoodDetail, RecentFood, RecipeSummary, CustomFood, FoodSource } from "@/types";
 
 /** What the Quantity screen will log when saved. */
@@ -18,7 +18,7 @@ interface Selection {
 function AddFoodForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const date = params.get("date") || new Date().toISOString().split("T")[0];
+  const date = params.get("date") || todayISO();
 
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<FoodSearchResult[]>([]);

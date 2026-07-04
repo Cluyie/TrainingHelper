@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { PersonStanding, ChevronRight, Check } from "lucide-react";
 import type { StretchingRoutine, StretchingSession, UserSettings } from "@/types";
-import { todayISO } from "@/lib/nutrition-client";
+import { todayISO, toISODate } from "@/lib/nutrition-client";
 
 // Rotation: pick `count` routines for the week, starting at a week-based offset so
 // the selection rotates through the catalogue week to week. `count` follows the
@@ -68,7 +68,7 @@ export default function StretchingPage() {
   const monday = (() => {
     const d = new Date();
     d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
-    return d.toISOString().split("T")[0];
+    return toISODate(d);
   })();
   const doneToday = (routineId: string) =>
     sessions.some((s) => s.routine_id === routineId && s.date === today && s.completed);

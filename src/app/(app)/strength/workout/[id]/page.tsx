@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { ChevronLeft, ChevronRight, Minus, Plus, Check, ExternalLink, ChevronDown, ChevronUp, Sun } from "lucide-react";
 import type { PlannedWorkout, PlannedExercise, WorkoutSet, WorkoutSession, ProgressionSuggestion } from "@/types";
 import { getProgressionSuggestion } from "@/lib/progression";
+import { todayISO } from "@/lib/nutrition-client";
 import { deloadSets, deloadWeight } from "@/lib/deload";
 
 const CATEGORY_COLOR: Record<string, string> = {
@@ -105,7 +106,7 @@ export default function WorkoutPage() {
         const sessions: WorkoutSession[] = await fetch(
           `/api/sessions?workout_id=${id}&limit=10`,
         ).then((r) => r.json());
-        const today = new Date().toISOString().split("T")[0];
+        const today = todayISO();
         const active = Array.isArray(sessions)
           ? sessions.find((s) => !s.completed_at && s.date === today)
           : undefined;
