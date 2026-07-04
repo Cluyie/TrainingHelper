@@ -3,8 +3,8 @@
 //
 // Keeps FDC_API_KEY server-side. Reads food detail, maps USDA nutrient
 // numbers onto our registry keys (per 100g), computes derived nutrients
-// (net carbs + the refined-carb heuristic), and scales a snapshot to a
-// logged gram quantity. Food detail is cached in the `food_cache` table.
+// (net carbs; refined carbs = measured added sugars), and scales a snapshot
+// to a logged gram quantity. Food detail is cached in the `food_cache` table.
 // ============================================================
 
 import { getSupabaseAdmin } from "@/lib/supabase";
@@ -182,16 +182,21 @@ export function extractPer100g(raw: RawDetail): NutrientSnapshot {
   fillFromLabel(snap, raw);
 
   // Derived: net carbs + refined carbs.
+  // Refined carbs = *measured* added sugars only (nutrient 539, or the Branded
+  // label's addedSugar). No estimation — starch "refinement" isn't measurable
+  // from nutrient data, and heuristics fabricated refined carbs for whole
+  // foods (oats, potatoes). Unmeasured stays null → shown as "no data".
   const carbs = read([205], "g");
-  const sugars = read([269], "g") ?? 0;
   const fiber = snap["fiber_g"] ?? 0;
-  if (carbs == null) {
-    snap["net_carbs_g"] = null;
-    snap["refined_carbs_g"] = null;
-  } else {
-    snap["net_carbs_g"] = round(Math.max(0, carbs - fiber));
-    snap["refined_carbs_g"] = round(computeRefined(carbs, sugars, fiber, raw.dataType));
+  snap["net_carbs_g"] = carbs == null ? null : round(Math.max(0, carbs - fiber));
+
+  let added = read([539], "g"); // "Sugars, added"
+  if (added == null) {
+    const label = raw.labelNutrients?.addedSugar?.value;
+    const serving = toGrams(raw.servingSize, raw.servingSizeUnit);
+    if (label != null && serving && serving > 0) added = round((label / serving) * 100);
   }
+  snap["refined_carbs_g"] = added == null ? null : round(Math.max(0, added));
 
   return snap;
 }
@@ -215,36 +220,6 @@ function fillFromLabel(snap: NutrientSnapshot, raw: RawDetail) {
   for (const [key, value] of Object.entries(map)) {
     if (snap[key] == null && value != null) snap[key] = per100(value);
   }
-}
-
-/**
- * Refined-carb heuristic: sugars + a fraction of non-sugar starch, where the
- * fraction rises with processing (Branded data type and/or low fiber ratio)
- * and falls for whole, high-fiber foods. Tunable — adjust the weights below.
- */
-export function computeRefined(
-  carbs: number,
-  sugars: number,
-  fiber: number,
-  dataType?: string
-): number {
-  const nonSugarStarch = Math.max(0, carbs - sugars - fiber);
-  const fiberRatio = carbs > 0 ? fiber / carbs : 0;
-  const branded = dataType === "Branded";
-
-  let w: number;
-  if (branded) {
-    w = fiberRatio < 0.1 ? 1.0 : 0.5;
-  } else if (fiberRatio < 0.05) {
-    w = 0.7; // white rice, refined starch
-  } else if (fiberRatio < 0.15) {
-    w = 0.3;
-  } else {
-    w = 0.05; // whole, fibrous foods
-  }
-
-  const refined = sugars + nonSugarStarch * w;
-  return Math.min(carbs, Math.max(0, refined));
 }
 
 // ---------- Scaling ----------

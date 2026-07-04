@@ -103,8 +103,11 @@ ALTER TABLE running_sessions ADD COLUMN IF NOT EXISTS optional boolean NOT NULL 
   group, USDA nutrient numbers, default target, floor/limit direction). Tier 1 = macros
   (calories, protein, fat, net carbs, fiber, refined carbs). Tier 2 = minerals, vitamins,
   functional (omega-3). No Tier 3.
-- **Derived:** net carbs = carbs − fiber. Refined carbs = heuristic (sugars + a fraction of
-  non-sugar starch weighted by processing/low-fiber) in `src/lib/usda.ts` → `computeRefined`.
+- **Derived:** net carbs = carbs − fiber. Refined carbs = *measured* free/added sugars only
+  (Frida "Free Sugars" param 418; USDA added sugars #539 or the Branded label's addedSugar;
+  custom foods use the entered "of which sugars"). Never estimated — unmeasured is null
+  ("no data"). A starch heuristic was removed 2026-07-04 for fabricating refined carbs in
+  whole foods (oats, potatoes).
 - **Net-carb hard limit:** toggle + value in `/nutrition/settings` (default 50g, on). Stored
   as a `nutrient_targets` row with `enabled`.
 - **Supplements:** `/nutrition/settings`. Added to totals but always shown separately from

@@ -3,7 +3,6 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { unzipSync, strFromU8 } from "fflate";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { computeRefined } from "@/lib/usda";
 import { NUTRIENTS, type NutrientSnapshot } from "@/lib/nutrients";
 
 export const dynamic = "force-dynamic";
@@ -35,8 +34,8 @@ const PARAM_TO_KEY: Record<string, string> = {
   "164": "vitamin_k1_ug",
   "441": "vitamin_k2_ug",
 };
-const PARAM_CARBS = "170"; // Carbohydrate by difference (total) — for derived carbs
-const PARAM_SUGARS = "245"; // Sum sugars — for the refined-carb heuristic
+const PARAM_CARBS = "170"; // Carbohydrate by difference (total) — for net carbs
+const PARAM_FREE_SUGARS = "418"; // Free Sugars (WHO) = refined carbs; populated for all foods
 const PARAM_EPA = "87"; // C20:5,n-3 (g/100g)
 const PARAM_DHA = "99"; // C22:6,n-3 (g/100g)
 
@@ -167,18 +166,12 @@ export async function POST(request: NextRequest) {
     per100g["omega3_epadha_mg"] =
       epa == null && dha == null ? null : round(((epa ?? 0) + (dha ?? 0)) * 1000);
 
-    // derived carbs
+    // derived carbs — refined carbs = measured free sugars, no estimation
     const carbs = raw[PARAM_CARBS];
     const fiber = raw["168"]; // dietary fibre
-    const sugars = raw[PARAM_SUGARS];
-    if (carbs == null) {
-      per100g["net_carbs_g"] = null;
-      per100g["refined_carbs_g"] = null;
-    } else {
-      const fib = fiber ?? 0;
-      per100g["net_carbs_g"] = round(Math.max(0, carbs - fib));
-      per100g["refined_carbs_g"] = round(computeRefined(carbs, sugars ?? 0, fib, "Frida"));
-    }
+    const free = raw[PARAM_FREE_SUGARS];
+    per100g["net_carbs_g"] = carbs == null ? null : round(Math.max(0, carbs - (fiber ?? 0)));
+    per100g["refined_carbs_g"] = free == null ? null : round(Math.max(0, free));
 
     const name_da = cells["A"] ?? "";
     rows.push({ id, name, name_da, per100g });
