@@ -25,22 +25,49 @@ export default function RunningPage() {
   const [workouts, setWorkouts] = useState<PlannedWorkout[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedWeek, setExpandedWeek] = useState<number | null>(null);
+  // Calendar-driven current week (see lib/running-week.ts). Advances one week per real
+  // week regardless of what was actually run.
+  const [currentWeek, setCurrentWeek] = useState(1);
+  const [savingWeek, setSavingWeek] = useState(false);
+  const [adjusting, setAdjusting] = useState(false);
 
   useEffect(() => {
     Promise.all([
       fetch("/api/running").then((r) => r.json()),
       // Strength schedule — used to advise where to slot the VO2 run each interval week.
       fetch("/api/workouts").then((r) => r.json()).catch(() => []),
+      fetch("/api/running/week").then((r) => r.json()).catch(() => null),
     ])
-      .then(([runData, workoutData]: [RunningSession[], PlannedWorkout[]]) => {
+      .then(([runData, workoutData, weekState]: [RunningSession[], PlannedWorkout[], { currentWeek?: number } | null]) => {
         setSessions(runData ?? []);
         setWorkouts(workoutData ?? []);
-        // Auto-expand the current week (first incomplete week)
-        const firstIncomplete = runData?.find((s) => !s.completed);
-        if (firstIncomplete) setExpandedWeek(firstIncomplete.program_week);
+        const week = weekState?.currentWeek ?? 1;
+        setCurrentWeek(week);
+        // Auto-expand the current calendar week.
+        setExpandedWeek(week);
       })
       .finally(() => setLoading(false));
   }, []);
+
+  // Re-align the program to real life: "I'm on week N".
+  async function realignWeek(week: number) {
+    setSavingWeek(true);
+    try {
+      const res = await fetch("/api/running/week", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ week }),
+      });
+      const state = await res.json().catch(() => null);
+      if (res.ok && state?.currentWeek) {
+        setCurrentWeek(state.currentWeek);
+        setExpandedWeek(state.currentWeek);
+        setAdjusting(false);
+      }
+    } finally {
+      setSavingWeek(false);
+    }
+  }
 
   // Scheduling guidance for hard intervals, derived from the strength week.
   const { haveSchedule, restShort, avoidShort } = getRunSchedulingHint(workouts);
@@ -58,7 +85,7 @@ export default function RunningPage() {
 
   const weekNumbers = Object.keys(weeks).map(Number).sort((a, b) => a - b);
   const completedWeeks = weekNumbers.filter((w) => weekDone(weeks[w]));
-  const currentWeek = weekNumbers.find((w) => !weekDone(weeks[w])) ?? weekNumbers[weekNumbers.length - 1];
+  // `currentWeek` is calendar-driven (from /api/running/week), not derived from completion.
 
   if (loading) return <Loader />;
 
@@ -87,6 +114,39 @@ export default function RunningPage() {
         <p className="text-xs" style={{ color: "var(--muted)" }}>
           Zone 2 focus — stay at a conversational pace. Build the aerobic engine.
         </p>
+
+        {/* Re-align the week to real life. Missed runs are history, not a debt — so the
+            week follows the calendar, and you can nudge it if it ever drifts. */}
+        {adjusting ? (
+          <div className="flex items-center gap-2 pt-1">
+            <span className="text-xs" style={{ color: "var(--muted)" }}>I&apos;m on week</span>
+            <select
+              value={currentWeek}
+              disabled={savingWeek}
+              onChange={(e) => realignWeek(Number(e.target.value))}
+              className="h-8 px-2 rounded-lg text-sm outline-none disabled:opacity-50"
+              style={{ background: "var(--surface-2)", color: "var(--foreground)", border: "1px solid var(--border)" }}
+            >
+              {Array.from({ length: 16 }, (_, i) => i + 1).map((w) => (
+                <option key={w} value={w}>{w}</option>
+              ))}
+            </select>
+            <button
+              onClick={() => setAdjusting(false)}
+              className="text-xs" style={{ color: "var(--muted)" }}
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setAdjusting(true)}
+            className="block text-left text-xs underline underline-offset-2"
+            style={{ color: "var(--muted)" }}
+          >
+            Not on week {currentWeek}? Adjust
+          </button>
+        )}
       </div>
 
       {/* Weeks */}

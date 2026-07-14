@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, ChevronDown, Save } from "lucide-react";
 import { TIER2 } from "@/lib/nutrients";
@@ -34,8 +34,37 @@ export default function CustomFoodForm({ foodId }: { foodId: string }) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [showMicros, setShowMicros] = useState(false);
 
+  // Draft persistence: switching to another app (e.g. to photograph a label) can
+  // evict the page on mobile and wipe React state. We auto-save what's typed to
+  // localStorage and restore it on return, clearing it only once the food is saved.
+  const draftKey = `customFoodDraft:${foodId}`;
+  const didInit = useRef(false);
+
   useEffect(() => {
-    if (!isEdit) return;
+    // Restore an in-progress draft first — it's the freshest copy of the user's
+    // edits and takes precedence over the server record.
+    try {
+      const raw = localStorage.getItem(draftKey);
+      if (raw) {
+        const d = JSON.parse(raw);
+        setName(d.name ?? "");
+        setBrand(d.brand ?? "");
+        setServing(d.serving ?? "");
+        setNotes(d.notes ?? "");
+        setValues(d.values ?? {});
+        if (d.showMicros) setShowMicros(true);
+        setLoading(false);
+        didInit.current = true;
+        return;
+      }
+    } catch {
+      // Corrupt/unavailable draft — fall through to the normal load path.
+    }
+
+    if (!isEdit) {
+      didInit.current = true;
+      return;
+    }
     fetch(`/api/nutrition/custom-foods/${foodId}`)
       .then((r) => r.json())
       .then((d: CustomFood) => {
@@ -53,8 +82,30 @@ export default function CustomFoodForm({ foodId }: { foodId: string }) {
         if (TIER2.some((n) => v[n.key] != null && v[n.key] !== "")) setShowMicros(true);
       })
       .catch(() => setError("Could not load this food."))
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        didInit.current = true;
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [foodId, isEdit]);
+
+  // Persist the draft on every edit (once the initial load has settled, so we
+  // never clobber a restored draft with the empty starting state).
+  useEffect(() => {
+    if (!didInit.current) return;
+    const hasContent =
+      name || brand || serving || notes || Object.values(values).some((v) => v !== "");
+    try {
+      if (hasContent) {
+        localStorage.setItem(draftKey, JSON.stringify({ name, brand, serving, notes, values, showMicros }));
+      } else {
+        localStorage.removeItem(draftKey);
+      }
+    } catch {
+      // Ignore storage failures (private mode / quota) — draft is best-effort.
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name, brand, serving, notes, values, showMicros]);
 
   function setVal(key: string, val: string) {
     setValues((prev) => ({ ...prev, [key]: val }));
@@ -84,6 +135,11 @@ export default function CustomFoodForm({ foodId }: { foodId: string }) {
       const d = await res.json().catch(() => ({}));
       setError(d.error || "Failed to save.");
       return;
+    }
+    try {
+      localStorage.removeItem(draftKey);
+    } catch {
+      // Non-fatal — the food is already saved server-side.
     }
     router.push("/nutrition/custom-foods");
   }
