@@ -363,7 +363,9 @@ export default function WorkoutPage() {
   const isBodyweight = !currentEx || !isLoaded(currentEx.equipment) || workout.is_home_workout;
 
   return (
-    <div className="max-w-lg mx-auto flex flex-col" style={{ height: "calc(100vh - 80px)" }}>
+    // dvh, not vh: on mobile `vh` measures the large viewport, so this box was already
+    // taller than the visible area before anything was added to it.
+    <div className="max-w-lg mx-auto flex flex-col" style={{ height: "calc(100dvh - 80px)" }}>
 
       {/* ── Header ── */}
       <div className="flex items-center justify-between px-4 pt-3 pb-2 shrink-0">
@@ -429,9 +431,16 @@ export default function WorkoutPage() {
         </div>
       )}
 
-      {/* ── Main content ── */}
+      {/* ── Main content ──
+          Split in two: everything informational scrolls, and the Log Set button is
+          pinned below it. Previously this whole region was a fixed-height box with
+          overflow-hidden and every child shrink-0, so anything that didn't fit was
+          simply unreachable — adding the effort rating pushed the log button off the
+          bottom, and expanding its scale made it much worse. */}
       {currentEx && currentPE && (
-        <div className="flex-1 flex flex-col px-4 pb-2 gap-3 overflow-hidden">
+        <div className="flex-1 flex flex-col px-4 pb-2 gap-3 min-h-0">
+
+          <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3">
 
           {/* Exercise name + info */}
           <div className="shrink-0">
@@ -555,9 +564,12 @@ export default function WorkoutPage() {
             </div>
           )}
 
-          {/* LOG SET — the main action */}
+          </div>{/* end scrollable region */}
+
+          {/* LOG SET — the main action. Outside the scroll area, so it is always
+              reachable no matter how much detail is expanded above it. */}
           {setsLeft > 0 ? (
-            <div className="flex-1 flex flex-col justify-end gap-3">
+            <div className="shrink-0 flex flex-col gap-3">
               <p className="text-xs font-bold text-center tracking-widest" style={{ color: "var(--muted)" }}>
                 SET {currentSets.length + 1} OF {effSets(currentPE)}
               </p>
@@ -592,7 +604,7 @@ export default function WorkoutPage() {
               </button>
             </div>
           ) : (
-            <div className="flex-1 flex flex-col justify-end">
+            <div className="shrink-0">
               <div className="w-full rounded-2xl font-bold text-base flex items-center justify-center gap-2"
                 style={{ background: color + "18", border: `1px solid ${color}55`, height: 60, color }}>
                 <Check size={20} strokeWidth={3} />
