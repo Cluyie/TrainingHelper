@@ -8,6 +8,7 @@ import { getProgressionSuggestion } from "@/lib/progression";
 import { todayISO } from "@/lib/nutrition-client";
 import { deloadSets, deloadWeight } from "@/lib/deload";
 import { isLoaded } from "@/lib/training-load";
+import RpeSelector from "@/components/ui/RpeSelector";
 
 const CATEGORY_COLOR: Record<string, string> = {
   power: "#ef4444",
@@ -57,6 +58,11 @@ export default function WorkoutPage() {
   const [swapOpen, setSwapOpen] = useState(false);
   const [swapOptions, setSwapOptions] = useState<Exercise[]>([]);
   const [swapLoading, setSwapLoading] = useState(false);
+  // RPE per exercise, not per set — one tap, then every set of that exercise
+  // carries it into the existing workout_sets.rpe column. Per-set would be more
+  // granular but it's a tap on every single set, which is where logging
+  // discipline actually breaks down.
+  const [rpeByExercise, setRpeByExercise] = useState<Record<string, number>>({});
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
   // Browser-only state, read after mount. Never during render or in a useState
@@ -258,6 +264,9 @@ export default function WorkoutPage() {
         set_number: existingSets.length + 1,
         weight_kg: weight,
         reps,
+        // Whatever RPE is currently selected for this exercise. Null until you
+        // pick one — an unrecorded value is honest, a defaulted one is not.
+        rpe: rpeByExercise[pe.id] ?? null,
       }),
     });
     const newSet: WorkoutSet = await res.json();
@@ -502,6 +511,27 @@ export default function WorkoutPage() {
               style={{ background: color + "18", border: `1px solid ${color}44` }}>
               <span className="text-base">🎉</span>
               <p className="text-xs font-semibold" style={{ color }}>{suggestion.message}</p>
+            </div>
+          )}
+
+          {/* Effort rating for this exercise. Appears once the first set is logged —
+              rating an exercise you haven't started yet is guesswork, and it keeps
+              the screen clear while you're setting up. */}
+          {currentPE && currentSets.length > 0 && (
+            <div className="shrink-0">
+              <RpeSelector
+                value={rpeByExercise[currentPE.id] ?? null}
+                onChange={(v) =>
+                  setRpeByExercise((prev) => {
+                    const next = { ...prev };
+                    if (v == null) delete next[currentPE.id];
+                    else next[currentPE.id] = v;
+                    return next;
+                  })
+                }
+                label={`Effort — ${currentEx?.name ?? "this exercise"}`}
+                hint="Applies to every set of this exercise. Tap the number again to clear it."
+              />
             </div>
           )}
 

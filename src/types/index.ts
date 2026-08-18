@@ -151,7 +151,27 @@ export interface RunningSession {
   completed: boolean;
   optional: boolean;
   notes: string | null;
+  // ── Logged detail, all optional. Raw measurements only: HRR is derived from
+  // hr_end/hr_60s/hr_120s at read time, and pace from duration + distance, so
+  // neither definition is frozen into the stored data.
+  rpe: number | null; // 1-10 perceived exertion
+  avg_hr: number | null;
+  max_hr: number | null;
+  hr_end: number | null; // on finishing
+  hr_60s: number | null; // 60s after stopping
+  hr_120s: number | null; // 120s after stopping
+  temperature_c: number | null;
+  surface: RunSurface | null;
 }
+
+export type RunSurface =
+  | "road"
+  | "forest"
+  | "beach"
+  | "grass"
+  | "gravel"
+  | "track"
+  | "treadmill";
 
 export interface StretchingExercise {
   id: string;
