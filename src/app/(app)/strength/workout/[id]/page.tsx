@@ -432,11 +432,14 @@ export default function WorkoutPage() {
       )}
 
       {/* ── Main content ──
-          Split in two: everything informational scrolls, and the Log Set button is
-          pinned below it. Previously this whole region was a fixed-height box with
-          overflow-hidden and every child shrink-0, so anything that didn't fit was
-          simply unreachable — adding the effort rating pushed the log button off the
-          bottom, and expanding its scale made it much worse. */}
+          Everything scrolls, including the Log Set button. This region used to be a
+          fixed-height box with overflow-hidden and every child shrink-0, so whatever
+          didn't fit was simply unreachable.
+
+          Pinning the button below the scroll area fixed reachability but reserved
+          fixed height on every screen, which cost more than it bought — steppers plus
+          button took roughly a third of a short phone. One scroll region, compact
+          controls, only the bottom nav is fixed. */}
       {currentEx && currentPE && (
         <div className="flex-1 flex flex-col px-4 pb-2 gap-3 min-h-0">
 
@@ -564,17 +567,17 @@ export default function WorkoutPage() {
             </div>
           )}
 
-          </div>{/* end scrollable region */}
-
-          {/* LOG SET — the main action. Outside the scroll area, so it is always
-              reachable no matter how much detail is expanded above it. */}
+          {/* LOG SET — inside the scroll region, not pinned. Pinning it reserved
+              fixed height at the bottom of every screen, which cost more room than
+              it bought: on a short phone the steppers plus button took a third of
+              the view even when you only wanted to read the exercise. */}
           {setsLeft > 0 ? (
-            <div className="shrink-0 flex flex-col gap-3">
-              <p className="text-xs font-bold text-center tracking-widest" style={{ color: "var(--muted)" }}>
+            <div className="shrink-0 flex flex-col gap-2 pb-1">
+              <p className="text-[10px] font-bold text-center tracking-widest" style={{ color: "var(--muted)" }}>
                 SET {currentSets.length + 1} OF {effSets(currentPE)}
               </p>
 
-              <div className={isBodyweight ? "grid grid-cols-1 gap-3" : "grid grid-cols-2 gap-3"}>
+              <div className={isBodyweight ? "grid grid-cols-1 gap-2" : "grid grid-cols-2 gap-2"}>
                 {!isBodyweight && (
                   <BigStepper
                     label="Weight (kg)"
@@ -596,22 +599,23 @@ export default function WorkoutPage() {
               <button
                 onClick={logSet}
                 disabled={((!isBodyweight && !weightInput) || !repsInput) || logging}
-                className="w-full rounded-2xl font-bold text-base transition-all active:scale-95 disabled:opacity-40 flex items-center justify-center gap-2"
-                style={{ background: color, color: "#fff", height: 60 }}
+                className="w-full rounded-2xl font-bold text-sm transition-all active:scale-95 disabled:opacity-40 flex items-center justify-center gap-2"
+                style={{ background: color, color: "#fff", height: 50 }}
               >
-                <Check size={20} strokeWidth={3} />
+                <Check size={18} strokeWidth={3} />
                 {logging ? "Saving…" : `Log Set ${currentSets.length + 1}`}
               </button>
             </div>
           ) : (
-            <div className="shrink-0">
-              <div className="w-full rounded-2xl font-bold text-base flex items-center justify-center gap-2"
-                style={{ background: color + "18", border: `1px solid ${color}55`, height: 60, color }}>
-                <Check size={20} strokeWidth={3} />
+            <div className="shrink-0 pb-1">
+              <div className="w-full rounded-2xl font-bold text-sm flex items-center justify-center gap-2"
+                style={{ background: color + "18", border: `1px solid ${color}55`, height: 48, color }}>
+                <Check size={18} strokeWidth={3} />
                 All {effSets(currentPE)} sets done
               </div>
             </div>
           )}
+          </div>{/* end scrollable region */}
         </div>
       )}
 
@@ -732,29 +736,32 @@ function BigStepper({ label, value, onChange, step, color }: {
     onChange(String(parseFloat(next.toFixed(2))));
   }
 
+  // Kept compact deliberately: this sits in the scroll flow now, and at its old size
+  // the steppers plus the log button took roughly a third of a phone screen. The
+  // +/- targets stay at 36px, which is still comfortably tappable with sweaty hands.
   return (
-    <div className="rounded-2xl p-3 flex flex-col gap-2" style={{ background: "var(--surface)" }}>
-      <p className="text-[10px] font-bold tracking-wider text-center" style={{ color: "var(--muted)" }}>
+    <div className="rounded-xl p-2 flex flex-col gap-1" style={{ background: "var(--surface)" }}>
+      <p className="text-[9px] font-bold tracking-wider text-center" style={{ color: "var(--muted)" }}>
         {label.toUpperCase()}
       </p>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1.5">
         <button onClick={() => adjust(-1)}
-          className="w-10 h-10 rounded-xl flex items-center justify-center text-lg font-bold shrink-0"
+          className="w-9 h-9 rounded-lg flex items-center justify-center font-bold shrink-0"
           style={{ background: "var(--surface-2)" }}>
-          <Minus size={18} />
+          <Minus size={16} />
         </button>
         <input
           type="number"
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="flex-1 text-center font-bold text-2xl outline-none bg-transparent"
+          className="flex-1 text-center font-bold text-xl outline-none bg-transparent"
           style={{ color: "var(--foreground)", minWidth: 0 }}
           inputMode="decimal"
         />
         <button onClick={() => adjust(1)}
-          className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+          className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
           style={{ background: color + "33", color }}>
-          <Plus size={18} />
+          <Plus size={16} />
         </button>
       </div>
     </div>
