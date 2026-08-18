@@ -612,12 +612,17 @@ export default function WorkoutPage() {
 
       {/* ── Swap sheet ── */}
       {swapOpen && (
-        <div className="fixed inset-0 z-50 flex items-end" style={{ background: "rgba(0,0,0,0.55)" }}
+        // dvh, not vh: on mobile `vh` is the LARGE viewport, so the bottom of the
+        // sheet sat behind the browser's URL bar and the last options were unreachable.
+        <div className="fixed inset-0 z-50 flex items-end" style={{ background: "rgba(0,0,0,0.55)", height: "100dvh" }}
           onClick={() => setSwapOpen(false)}>
-          <div className="w-full max-w-lg mx-auto rounded-t-3xl p-4 space-y-3 max-h-[75vh] overflow-y-auto"
-            style={{ background: "var(--surface)" }}
+          <div className="w-full max-w-lg mx-auto rounded-t-3xl flex flex-col"
+            style={{ background: "var(--surface)", maxHeight: "85dvh" }}
             onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between">
+
+            {/* Pinned header — the close button stays reachable however far you scroll. */}
+            <div className="flex items-center justify-between p-4 pb-3 shrink-0"
+              style={{ borderBottom: "1px solid var(--border)" }}>
               <div>
                 <h3 className="text-base font-bold">Swap exercise</h3>
                 <p className="text-xs" style={{ color: "var(--muted)" }}>
@@ -625,44 +630,50 @@ export default function WorkoutPage() {
                 </p>
               </div>
               <button onClick={() => setSwapOpen(false)}
-                className="w-9 h-9 rounded-xl flex items-center justify-center"
+                className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
                 style={{ background: "var(--surface-2)" }}>
                 <X size={16} />
               </button>
             </div>
 
-            {currentPE && swaps[currentPE.id] && (
-              <button onClick={clearSwap}
-                className="w-full text-left px-3 py-2.5 rounded-xl text-sm font-semibold"
-                style={{ background: "var(--surface-2)", color: "var(--muted)" }}>
-                ← Back to {currentPE.exercise?.name}
-              </button>
-            )}
-
-            {swapLoading ? (
-              <p className="text-sm py-6 text-center" style={{ color: "var(--muted)" }}>Loading…</p>
-            ) : swapOptions.length === 0 ? (
-              <p className="text-sm py-6 text-center" style={{ color: "var(--muted)" }}>
-                No alternatives available for this movement.
-              </p>
-            ) : (
-              swapOptions.map((ex) => (
-                <button key={ex.id} onClick={() => applySwap(ex)}
-                  className="w-full text-left px-3 py-2.5 rounded-xl"
-                  style={{ background: "var(--surface-2)" }}>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-semibold">{ex.name}</span>
-                    {ex.equipment.includes("cable") && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-md font-semibold"
-                        style={{ background: "var(--accent)22", color: "var(--accent)" }}>cable</span>
-                    )}
-                  </div>
-                  <p className="text-xs mt-1 leading-relaxed line-clamp-2" style={{ color: "var(--muted)" }}>
-                    {ex.description}
-                  </p>
+            {/* Only the list scrolls. Bottom padding clears the phone's home indicator. */}
+            <div className="overflow-y-auto p-4 pt-3 space-y-2"
+              style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 1.5rem)" }}>
+              {currentPE && swaps[currentPE.id] && (
+                <button onClick={clearSwap}
+                  className="w-full text-left px-3 py-2.5 rounded-xl text-sm font-semibold"
+                  style={{ background: "var(--surface-2)", color: "var(--muted)" }}>
+                  ← Back to {currentPE.exercise?.name}
                 </button>
-              ))
-            )}
+              )}
+
+              {swapLoading ? (
+                <p className="text-sm py-6 text-center" style={{ color: "var(--muted)" }}>Loading…</p>
+              ) : swapOptions.length === 0 ? (
+                <p className="text-sm py-6 text-center" style={{ color: "var(--muted)" }}>
+                  No alternatives available for this movement.
+                </p>
+              ) : (
+                swapOptions.map((ex) => (
+                  <button key={ex.id} onClick={() => applySwap(ex)}
+                    className="w-full text-left px-3 py-3 rounded-xl"
+                    style={{ background: "var(--surface-2)" }}>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-semibold">{ex.name}</span>
+                      {ex.equipment.includes("cable") && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-md font-semibold"
+                          style={{ background: "var(--accent)22", color: "var(--accent)" }}>cable</span>
+                      )}
+                    </div>
+                    {/* Not clamped — you're choosing a substitution mid-workout, so the
+                        whole cue matters, not the first two lines of it. */}
+                    <p className="text-xs mt-1.5 leading-relaxed" style={{ color: "var(--muted)" }}>
+                      {ex.description}
+                    </p>
+                  </button>
+                ))
+              )}
+            </div>
           </div>
         </div>
       )}

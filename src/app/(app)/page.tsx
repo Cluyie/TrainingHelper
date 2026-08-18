@@ -23,6 +23,7 @@ export default function Dashboard() {
   const [workouts, setWorkouts] = useState<PlannedWorkout[]>([]);
   const [sessions, setSessions] = useState<WorkoutSession[]>([]);
   const [nextRun, setNextRun] = useState<RunningSession | null>(null);
+  const [runIsToday, setRunIsToday] = useState(false);
   const [vo2ThisWeek, setVo2ThisWeek] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -51,10 +52,23 @@ export default function Dashboard() {
       setWorkouts(w ?? []);
       // Surface the next required run — optional unstructured sessions carry no
       // pressure and shouldn't nag from the dashboard.
+      //
+      // Ordered by DAY, counting forward from today. The API returns runs in
+      // session order, so taking the first one showed whichever run happened to be
+      // session 1 — Saturday's long run could outrank today's easy one.
       const runArr: RunningSession[] = runs ?? [];
-      const incomplete = runArr.filter((r) => !r.completed && !r.optional);
+      const todayIdx = new Date().getDay();
+      const todayName = TODAY_KEYS[todayIdx];
+      const fromToday = (day: string) =>
+        (TODAY_KEYS.indexOf(day) - TODAY_KEYS.indexOf(todayName) + 7) % 7;
+
+      const incomplete = runArr
+        .filter((r) => !r.completed && !r.optional && r.day_of_week)
+        .sort((a, b) => fromToday(a.day_of_week!) - fromToday(b.day_of_week!));
+
       const next = incomplete[0] ?? null;
       setNextRun(next);
+      setRunIsToday(!!next?.day_of_week && fromToday(next.day_of_week) === 0);
       // Flag if the current running week contains a VO2 (interval) session.
       setVo2ThisWeek(
         next != null && runArr.some((r) => r.program_week === next.program_week && r.type === "interval")
@@ -158,10 +172,17 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Next run */}
+      {/* Next run. Now that strength and running are one plan, a run scheduled for
+          today should read as today's training, not as something upcoming. */}
       {nextRun && (
         <TodayCard
-          title={nextRun.day_of_week ? `Next Run: ${DAY_NAMES[nextRun.day_of_week]}` : "Next Run"}
+          title={
+            runIsToday
+              ? "Today's Run"
+              : nextRun.day_of_week
+              ? `Next Run: ${DAY_NAMES[nextRun.day_of_week]}`
+              : "Next Run"
+          }
           subtitle={nextRun.target_description.slice(0, 60) + "…"}
           icon={<Wind size={20} style={{ color: "#60a5fa" }} />}
           href="/running"
