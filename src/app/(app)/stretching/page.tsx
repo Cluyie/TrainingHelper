@@ -51,7 +51,9 @@ export default function StretchingPage() {
     const res = await fetch("/api/stretching", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ routine_id: routineId }),
+      // Local date, not the server's UTC one — an evening session would otherwise be
+      // recorded against tomorrow. See the same fix in the strength workout page.
+      body: JSON.stringify({ routine_id: routineId, date: todayISO() }),
     });
     const session = await res.json();
     router.push(`/stretching/session?session_id=${session.id}&routine_id=${routineId}`);

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronLeft, Plus, Trash2, Pill, Target } from "lucide-react";
 import { NUTRIENTS, NUTRIENT_MAP, TIER1, byGroup, GROUP_ORDER, GROUP_LABELS } from "@/lib/nutrients";
+import { todayISO } from "@/lib/nutrition-client";
 import type { ActivityAdjustment } from "@/lib/activity";
 import type { NutrientTarget, Supplement, Goal } from "@/types";
 
@@ -48,7 +49,7 @@ export default function NutritionSettingsPage() {
 
   useEffect(() => {
     Promise.all([
-      fetch("/api/nutrition/targets").then((r) => r.json()),
+      fetch(`/api/nutrition/targets?date=${todayISO()}`).then((r) => r.json()),
       fetch("/api/nutrition/supplements").then((r) => r.json()),
       loadMeta(),
     ]).then(([t, s]) => {

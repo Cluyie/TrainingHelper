@@ -2,16 +2,18 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ChevronLeft, ChevronRight, Minus, Plus, Check, ExternalLink, ChevronDown, ChevronUp, Sun } from "lucide-react";
-import type { PlannedWorkout, PlannedExercise, WorkoutSet, WorkoutSession, ProgressionSuggestion } from "@/types";
+import { ChevronLeft, ChevronRight, Minus, Plus, Check, ExternalLink, ChevronDown, ChevronUp, Sun, Repeat, X } from "lucide-react";
+import type { PlannedWorkout, PlannedExercise, WorkoutSet, WorkoutSession, ProgressionSuggestion, Exercise } from "@/types";
 import { getProgressionSuggestion } from "@/lib/progression";
 import { todayISO } from "@/lib/nutrition-client";
 import { deloadSets, deloadWeight } from "@/lib/deload";
+import { isLoaded } from "@/lib/training-load";
 
 const CATEGORY_COLOR: Record<string, string> = {
   power: "#ef4444",
   hinge: "#f59e0b", squat: "#8b5cf6", push: "#3b82f6",
   pull: "#10b981", carry: "#f97316", core: "#ec4899", shoulder_health: "#06b6d4",
+  calf: "#84cc16",
 };
 
 function youtubeSearch(name: string) {
@@ -21,6 +23,9 @@ function youtubeSearch(name: string) {
 export default function WorkoutPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  // Swaps are per workout, per day — a substitution made because a machine was busy
+  // shouldn't quietly persist into next week's session.
+  const swapKey = `workoutSwaps:${id}:${todayISO()}`;
 
   const [workout, setWorkout] = useState<PlannedWorkout | null>(null);
   const sessionIdRef = useRef<string | null>(null);
@@ -41,12 +46,34 @@ export default function WorkoutPage() {
   const [deload, setDeload] = useState(false);
   const [keepAwake, setKeepAwake] = useState(false);
   const [wakeLockSupported, setWakeLockSupported] = useState(false);
+  // Session-scoped exercise swaps, keyed by planned_exercise id. Sets already store
+  // exercise_id directly, so a swap needs no schema change — and the stored program is
+  // left untouched, which is what you want when a machine is simply busy today.
+  //
+  // Mirrored into localStorage per workout+day: sets are persisted server-side against
+  // the SWAPPED exercise, so if a reload lost the swap the page would look for them
+  // under the planned exercise and your finished sets would appear undone.
+  const [swaps, setSwaps] = useState<Record<string, Exercise>>({});
+  const [swapOpen, setSwapOpen] = useState(false);
+  const [swapOptions, setSwapOptions] = useState<Exercise[]>([]);
+  const [swapLoading, setSwapLoading] = useState(false);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
 
+  // Browser-only state, read after mount. Never during render or in a useState
+  // initialiser: the server has no localStorage, so that would hydrate mismatched.
   useEffect(() => {
     setWakeLockSupported("wakeLock" in navigator);
     if (localStorage.getItem("keepScreenAwake") === "1") setKeepAwake(true);
-  }, []);
+
+    // Restore today's swaps. Sets are persisted server-side against the SWAPPED
+    // exercise, so losing the swap on reload would make finished sets look undone.
+    try {
+      const raw = localStorage.getItem(swapKey);
+      if (raw) setSwaps(JSON.parse(raw));
+    } catch {
+      /* corrupt or unavailable — start with no swaps */
+    }
+  }, [swapKey]);
 
   useEffect(() => {
     if (!keepAwake || !("wakeLock" in navigator)) return;
@@ -90,6 +117,7 @@ export default function WorkoutPage() {
       .then((s) => setDeload(!!s?.isDeload))
       .catch(() => {});
   }, []);
+
 
   useEffect(() => {
     if (!id) return;
@@ -145,31 +173,45 @@ export default function WorkoutPage() {
     setCurrentExIdx(idx === -1 ? exs.length - 1 : idx);
   }, [restored, workout, sets, deload]);
 
+  // Progression history, keyed by the exercise actually being performed. Re-runs when
+  // a swap changes that — otherwise a swapped-in lift always claimed "first time",
+  // even with months of history behind it.
   useEffect(() => {
     if (!workout?.planned_exercises) return;
+    let cancelled = false;
+
     const load = async () => {
-      const result: Record<string, ProgressionSuggestion> = {};
-      for (const pe of workout.planned_exercises!) {
-        const res = await fetch(`/api/sets?exercise_id=${pe.exercise_id}&recent_sessions=3`);
-        const recent: WorkoutSet[] = await res.json();
-        result[pe.exercise_id] = getProgressionSuggestion(pe, recent);
-      }
-      setSuggestions(result);
+      const pes = workout.planned_exercises!;
+      const entries = await Promise.all(
+        pes.map(async (pe) => {
+          const exerciseId = swaps[pe.id]?.id ?? pe.exercise_id;
+          const res = await fetch(`/api/sets?exercise_id=${exerciseId}&recent_sessions=3`);
+          const recent: WorkoutSet[] = await res.json();
+          return [exerciseId, getProgressionSuggestion(pe, recent)] as const;
+        })
+      );
+      if (!cancelled) setSuggestions(Object.fromEntries(entries));
     };
+
     load();
-  }, [workout]);
+    return () => {
+      cancelled = true;
+    };
+  }, [workout, swaps]);
 
   useEffect(() => {
     if (!workout?.planned_exercises) return;
     const pe = workout.planned_exercises[currentExIdx];
     if (!pe) return;
-    const s = suggestions[pe.exercise_id];
+    // Key off the swapped exercise where there is one, so the prefilled weight follows
+    // what you're actually about to lift.
+    const s = suggestions[swaps[pe.id]?.id ?? pe.exercise_id];
     const base = s?.suggested_weight_kg ?? 0;
     const w = deload ? deloadWeight(base, pe.progression_increment_kg) : base;
     setWeightInput(w ? String(w) : "");
     setRepsInput(String(pe.target_reps_min));
     setShowDescription(false);
-  }, [currentExIdx, suggestions, workout, deload]);
+  }, [currentExIdx, suggestions, workout, deload, swaps]);
 
   useEffect(() => {
     if (!restActive) return;
@@ -185,7 +227,11 @@ export default function WorkoutPage() {
     const res = await fetch("/api/sessions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ planned_workout_id: id }),
+      // Send OUR date, not the server's. The server falls back to the UTC date, which
+      // is already tomorrow for an evening session in Denmark — that mismatched every
+      // client-side check (all of which use local time), so a late workout wouldn't
+      // resume if you navigated away, and wouldn't show as done today.
+      body: JSON.stringify({ planned_workout_id: id, date: todayISO() }),
     });
     const session = await res.json();
     sessionIdRef.current = session.id;
@@ -200,24 +246,69 @@ export default function WorkoutPage() {
     setLogging(true);
     const sid = await ensureSession();
     const pe = workout.planned_exercises[currentExIdx];
-    const existingSets = sets[pe.exercise_id] ?? [];
+    // Log against whatever is actually being done — the swap if there is one.
+    const exerciseId = swaps[pe.id]?.id ?? pe.exercise_id;
+    const existingSets = sets[exerciseId] ?? [];
     const res = await fetch("/api/sets", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         session_id: sid,
-        exercise_id: pe.exercise_id,
+        exercise_id: exerciseId,
         set_number: existingSets.length + 1,
         weight_kg: weight,
         reps,
       }),
     });
     const newSet: WorkoutSet = await res.json();
-    setSets((prev) => ({ ...prev, [pe.exercise_id]: [...(prev[pe.exercise_id] ?? []), newSet] }));
+    setSets((prev) => ({ ...prev, [exerciseId]: [...(prev[exerciseId] ?? []), newSet] }));
     setRestSeconds(90);
     setRestActive(true);
     setRepsInput(String(pe.target_reps_min));
     setLogging(false);
+  }
+
+  // Alternatives come from the same pool the generator uses, so a swap can never pull
+  // in something the session shouldn't hold — no bodyweight filler at the gym, nothing
+  // above your phase.
+  async function openSwap() {
+    if (!currentPE || !currentEx) return;
+    setSwapOpen(true);
+    setSwapLoading(true);
+    try {
+      const res = await fetch(
+        `/api/exercises/alternatives?exercise_id=${currentEx.id}&home=${workout?.is_home_workout ? "true" : "false"}`
+      );
+      setSwapOptions(res.ok ? await res.json() : []);
+    } catch {
+      setSwapOptions([]);
+    } finally {
+      setSwapLoading(false);
+    }
+  }
+
+  function persistSwaps(next: Record<string, Exercise>) {
+    setSwaps(next);
+    try {
+      if (Object.keys(next).length === 0) localStorage.removeItem(swapKey);
+      else localStorage.setItem(swapKey, JSON.stringify(next));
+    } catch {
+      /* private mode or quota — the swap still applies for this page view */
+    }
+  }
+
+  function applySwap(ex: Exercise) {
+    if (!currentPE) return;
+    persistSwaps({ ...swaps, [currentPE.id]: ex });
+    setSwapOpen(false);
+  }
+
+  function clearSwap() {
+    if (!currentPE) return;
+    const next = { ...swaps };
+    delete next[currentPE.id];
+    persistSwaps(next);
+    setSwapOpen(false);
   }
 
   async function completeWorkout() {
@@ -246,13 +337,21 @@ export default function WorkoutPage() {
   // On a deload week, every exercise drops a working set.
   const effSets = (pe: PlannedExercise) => (deload ? deloadSets(pe.target_sets) : pe.target_sets);
   const currentPE = exercises[currentExIdx];
-  const currentEx = currentPE?.exercise;
-  const currentSets = sets[currentPE?.exercise_id ?? ""] ?? [];
-  const suggestion = suggestions[currentPE?.exercise_id ?? ""];
+  // A swap overrides the planned exercise for this session only.
+  const currentEx = (currentPE && swaps[currentPE.id]) || currentPE?.exercise;
+  // Everything keys off the exercise actually being performed, so a swap mid-session
+  // keeps its own set count and progress rather than inheriting the planned one's.
+  const effId = (pe: PlannedExercise) => swaps[pe.id]?.id ?? pe.exercise_id;
+  const currentSets = sets[currentPE ? effId(currentPE) : ""] ?? [];
+  const suggestion = suggestions[currentPE ? effId(currentPE) : ""];
   const setsLeft = (currentPE ? effSets(currentPE) : 0) - currentSets.length;
-  const allDone = exercises.every((pe) => (sets[pe.exercise_id]?.length ?? 0) >= effSets(pe));
+  const allDone = exercises.every((pe) => (sets[effId(pe)]?.length ?? 0) >= effSets(pe));
   const color = CATEGORY_COLOR[currentEx?.category ?? ""] ?? "var(--accent)";
-  const isBodyweight = workout.is_home_workout || (currentPE?.progression_increment_kg === 0 && !suggestion?.last_weight_kg);
+  // Derived from the exercise's own equipment rather than the day type. The old rule
+  // ("is this a home workout?") happened to give the right answer today, but it would
+  // hide the weight field the moment a swap brought a loaded exercise into a session —
+  // and it wrongly treated any 0-increment gym exercise as bodyweight.
+  const isBodyweight = !currentEx || !isLoaded(currentEx.equipment) || workout.is_home_workout;
 
   return (
     <div className="max-w-lg mx-auto flex flex-col" style={{ height: "calc(100vh - 80px)" }}>
@@ -347,6 +446,17 @@ export default function WorkoutPage() {
                     style={{ background: "#dc262622", color: "#f87171" }}>
                     <ExternalLink size={9} />tutorial
                   </a>
+                  <button onClick={openSwap}
+                    className="text-[10px] px-2 py-0.5 rounded-full inline-flex items-center gap-1"
+                    style={{ background: "var(--surface-2)", color: "var(--muted)" }}>
+                    <Repeat size={9} />swap
+                  </button>
+                  {currentPE && swaps[currentPE.id] && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
+                      style={{ background: "#f59e0b22", color: "#f59e0b" }}>
+                      swapped
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -499,6 +609,63 @@ export default function WorkoutPage() {
           <ChevronRight size={20} />
         </button>
       </div>
+
+      {/* ── Swap sheet ── */}
+      {swapOpen && (
+        <div className="fixed inset-0 z-50 flex items-end" style={{ background: "rgba(0,0,0,0.55)" }}
+          onClick={() => setSwapOpen(false)}>
+          <div className="w-full max-w-lg mx-auto rounded-t-3xl p-4 space-y-3 max-h-[75vh] overflow-y-auto"
+            style={{ background: "var(--surface)" }}
+            onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-base font-bold">Swap exercise</h3>
+                <p className="text-xs" style={{ color: "var(--muted)" }}>
+                  Just for today — your program stays as it is.
+                </p>
+              </div>
+              <button onClick={() => setSwapOpen(false)}
+                className="w-9 h-9 rounded-xl flex items-center justify-center"
+                style={{ background: "var(--surface-2)" }}>
+                <X size={16} />
+              </button>
+            </div>
+
+            {currentPE && swaps[currentPE.id] && (
+              <button onClick={clearSwap}
+                className="w-full text-left px-3 py-2.5 rounded-xl text-sm font-semibold"
+                style={{ background: "var(--surface-2)", color: "var(--muted)" }}>
+                ← Back to {currentPE.exercise?.name}
+              </button>
+            )}
+
+            {swapLoading ? (
+              <p className="text-sm py-6 text-center" style={{ color: "var(--muted)" }}>Loading…</p>
+            ) : swapOptions.length === 0 ? (
+              <p className="text-sm py-6 text-center" style={{ color: "var(--muted)" }}>
+                No alternatives available for this movement.
+              </p>
+            ) : (
+              swapOptions.map((ex) => (
+                <button key={ex.id} onClick={() => applySwap(ex)}
+                  className="w-full text-left px-3 py-2.5 rounded-xl"
+                  style={{ background: "var(--surface-2)" }}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold">{ex.name}</span>
+                    {ex.equipment.includes("cable") && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-md font-semibold"
+                        style={{ background: "var(--accent)22", color: "var(--accent)" }}>cable</span>
+                    )}
+                  </div>
+                  <p className="text-xs mt-1 leading-relaxed line-clamp-2" style={{ color: "var(--muted)" }}>
+                    {ex.description}
+                  </p>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

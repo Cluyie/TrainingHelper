@@ -1,9 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Wind, CheckCircle2, Circle, ChevronRight, Clock, AlertTriangle } from "lucide-react";
-import type { RunningSession, PlannedWorkout } from "@/types";
-import { getRunSchedulingHint } from "@/lib/run-schedule";
+import { Wind, CheckCircle2, Clock, CalendarDays } from "lucide-react";
+import type { RunningSession, DayOfWeek } from "@/types";
 import Link from "next/link";
 
 const TYPE_COLORS: Record<string, string> = {
@@ -14,80 +13,71 @@ const TYPE_COLORS: Record<string, string> = {
 };
 
 const TYPE_LABELS: Record<string, string> = {
-  easy: "Easy Run",
-  interval: "Intervals",
-  long: "Long Run",
+  easy: "Easy Zone 2",
+  interval: "VO₂ Intervals",
+  long: "Long Zone 2",
   unstructured: "Easy / Unstructured",
 };
 
+const DAY_ORDER: DayOfWeek[] = [
+  "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+];
+
+const DAY_LABEL: Record<string, string> = {
+  monday: "Monday", tuesday: "Tuesday", wednesday: "Wednesday", thursday: "Thursday",
+  friday: "Friday", saturday: "Saturday", sunday: "Sunday",
+};
+
+const PHASE_BLURB: Record<number, string> = {
+  1: "Base — building the aerobic engine. No intervals yet; that's deliberate.",
+  2: "Development — VO₂ work introduced gradually alongside the Zone 2 base.",
+  3: "Full — the complete stimulus, rotating between three interval blocks.",
+};
+
+interface BlockState {
+  weekInBlock: number;
+  blockIndex: number;
+  blockWeeks: number;
+  isDeload: boolean;
+  runningPhase: number;
+  blockVariant: string | null;
+}
+
 export default function RunningPage() {
   const [sessions, setSessions] = useState<RunningSession[]>([]);
-  const [workouts, setWorkouts] = useState<PlannedWorkout[]>([]);
+  const [block, setBlock] = useState<BlockState | null>(null);
   const [loading, setLoading] = useState(true);
-  const [expandedWeek, setExpandedWeek] = useState<number | null>(null);
-  // Calendar-driven current week (see lib/running-week.ts). Advances one week per real
-  // week regardless of what was actually run.
-  const [currentWeek, setCurrentWeek] = useState(1);
-  const [savingWeek, setSavingWeek] = useState(false);
-  const [adjusting, setAdjusting] = useState(false);
 
   useEffect(() => {
     Promise.all([
       fetch("/api/running").then((r) => r.json()),
-      // Strength schedule — used to advise where to slot the VO2 run each interval week.
-      fetch("/api/workouts").then((r) => r.json()).catch(() => []),
       fetch("/api/running/week").then((r) => r.json()).catch(() => null),
     ])
-      .then(([runData, workoutData, weekState]: [RunningSession[], PlannedWorkout[], { currentWeek?: number } | null]) => {
+      .then(([runData, blockState]: [RunningSession[], BlockState | null]) => {
         setSessions(runData ?? []);
-        setWorkouts(workoutData ?? []);
-        const week = weekState?.currentWeek ?? 1;
-        setCurrentWeek(week);
-        // Auto-expand the current calendar week.
-        setExpandedWeek(week);
+        setBlock(blockState);
       })
       .finally(() => setLoading(false));
   }, []);
 
-  // Re-align the program to real life: "I'm on week N".
-  async function realignWeek(week: number) {
-    setSavingWeek(true);
-    try {
-      const res = await fetch("/api/running/week", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ week }),
-      });
-      const state = await res.json().catch(() => null);
-      if (res.ok && state?.currentWeek) {
-        setCurrentWeek(state.currentWeek);
-        setExpandedWeek(state.currentWeek);
-        setAdjusting(false);
-      }
-    } finally {
-      setSavingWeek(false);
-    }
-  }
-
-  // Scheduling guidance for hard intervals, derived from the strength week.
-  const { haveSchedule, restShort, avoidShort } = getRunSchedulingHint(workouts);
-
-  // Group by week
-  const weeks = sessions.reduce<Record<number, RunningSession[]>>((acc, s) => {
-    if (!acc[s.program_week]) acc[s.program_week] = [];
-    acc[s.program_week].push(s);
-    return acc;
-  }, {});
-
-  // Optional (unstructured) sessions never block week completion — they carry no
-  // progression pressure and can be skipped freely.
-  const weekDone = (ss: RunningSession[]) => ss.filter((s) => !s.optional).every((s) => s.completed);
-
-  const weekNumbers = Object.keys(weeks).map(Number).sort((a, b) => a - b);
-  const completedWeeks = weekNumbers.filter((w) => weekDone(weeks[w]));
-  // `currentWeek` is calendar-driven (from /api/running/week), not derived from completion.
-
   if (loading) return <Loader />;
+
+  const weekInBlock = block?.weekInBlock ?? 1;
+  const phase = block?.runningPhase ?? 1;
+
+  // This block-week's runs. The day_of_week check is what separates live sessions from
+  // history: program_week now means week-in-block (1-6), so completed rows left over
+  // from the retired 16-week program collide with it numerically. Those legacy rows
+  // were never placed by the planner, so they have no weekday — and they stay out of
+  // the schedule while remaining available to analytics.
+  const thisWeek = sessions.filter((s) => s.program_week === weekInBlock && s.day_of_week);
+  const required = thisWeek.filter((s) => !s.optional);
+  const doneCount = required.filter((s) => s.completed).length;
+
+  const byDay = DAY_ORDER.map((day) => ({
+    day,
+    runs: thisWeek.filter((s) => s.day_of_week === day),
+  })).filter((d) => d.runs.length > 0);
 
   return (
     <div className="max-w-lg mx-auto px-4 py-6 space-y-5">
@@ -96,181 +86,117 @@ export default function RunningPage() {
         <h1 className="text-xl font-bold">Running</h1>
       </div>
 
-      {/* Progress bar */}
+      {/* Phase + block position. Running shares the 6-week block clock with strength,
+          so week 6 deloads both at once rather than the two drifting apart. */}
       <div className="rounded-2xl p-4 space-y-3"
         style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
         <div className="flex justify-between items-center">
-          <span className="text-sm font-semibold">16-Week Programme</span>
+          <span className="text-sm font-semibold">Running Phase {phase}</span>
           <span className="text-sm" style={{ color: "var(--muted)" }}>
-            Week {currentWeek} of 16
+            Week {weekInBlock} of {block?.blockWeeks ?? 6}
           </span>
         </div>
+
         <div className="h-2 rounded-full overflow-hidden" style={{ background: "var(--surface-2)" }}>
-          <div
-            className="h-full rounded-full transition-all"
-            style={{ width: `${(completedWeeks.length / 16) * 100}%`, background: "#60a5fa" }}
-          />
+          <div className="h-full rounded-full transition-all"
+            style={{ width: `${(weekInBlock / (block?.blockWeeks ?? 6)) * 100}%`, background: "#60a5fa" }} />
         </div>
-        <p className="text-xs" style={{ color: "var(--muted)" }}>
-          Zone 2 focus — stay at a conversational pace. Build the aerobic engine.
+
+        <p className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
+          {PHASE_BLURB[phase]}
         </p>
 
-        {/* Re-align the week to real life. Missed runs are history, not a debt — so the
-            week follows the calendar, and you can nudge it if it ever drifts. */}
-        {adjusting ? (
-          <div className="flex items-center gap-2 pt-1">
-            <span className="text-xs" style={{ color: "var(--muted)" }}>I&apos;m on week</span>
-            <select
-              value={currentWeek}
-              disabled={savingWeek}
-              onChange={(e) => realignWeek(Number(e.target.value))}
-              className="h-8 px-2 rounded-lg text-sm outline-none disabled:opacity-50"
-              style={{ background: "var(--surface-2)", color: "var(--foreground)", border: "1px solid var(--border)" }}
-            >
-              {Array.from({ length: 16 }, (_, i) => i + 1).map((w) => (
-                <option key={w} value={w}>{w}</option>
-              ))}
-            </select>
-            <button
-              onClick={() => setAdjusting(false)}
-              className="text-xs" style={{ color: "var(--muted)" }}
-            >
-              Cancel
-            </button>
+        {block?.blockVariant && (
+          <p className="text-xs" style={{ color: "var(--muted)" }}>
+            Interval block <span className="font-semibold">{block.blockVariant}</span> — the three blocks
+            rotate, so this is variety rather than an ever-increasing load.
+          </p>
+        )}
+
+        {block?.isDeload && (
+          <div className="rounded-xl p-3"
+            style={{ background: "rgba(96,165,250,0.10)", border: "1px solid rgba(96,165,250,0.30)" }}>
+            <p className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
+              <span className="font-semibold" style={{ color: "#60a5fa" }}>Deload week.</span>{" "}
+              No intervals, shorter runs. Strength deloads this week too — this is where the
+              adaptation actually lands.
+            </p>
           </div>
-        ) : (
-          <button
-            onClick={() => setAdjusting(true)}
-            className="block text-left text-xs underline underline-offset-2"
-            style={{ color: "var(--muted)" }}
-          >
-            Not on week {currentWeek}? Adjust
-          </button>
+        )}
+
+        <p className="text-xs" style={{ color: "var(--muted)" }}>
+          {doneCount} / {required.length} sessions done this week
+        </p>
+      </div>
+
+      {/* This week, laid out by day. */}
+      <div className="space-y-3">
+        {byDay.map(({ day, runs }) => (
+          <div key={day}>
+            <div className="flex items-center gap-2 px-1 pb-1.5">
+              <CalendarDays size={12} style={{ color: "var(--muted)" }} />
+              <span className="text-xs font-semibold" style={{ color: "var(--muted)" }}>
+                {DAY_LABEL[day]}
+              </span>
+            </div>
+            <div className="space-y-2">
+              {runs.map((s) => <RunCard key={s.id} session={s} />)}
+            </div>
+          </div>
+        ))}
+
+        {thisWeek.length === 0 && (
+          <p className="text-sm text-center py-8" style={{ color: "var(--muted)" }}>
+            No runs scheduled yet. Save your settings to generate the week.
+          </p>
         )}
       </div>
+    </div>
+  );
+}
 
-      {/* Weeks */}
-      <div className="space-y-2">
-        {weekNumbers.map((week) => {
-          const wSessions = weeks[week];
-          const allDone = weekDone(wSessions);
-          const requiredCount = wSessions.filter((s) => !s.optional).length;
-          const isCurrent = week === currentWeek;
-          const isOpen = expandedWeek === week;
-
-          return (
-            <div key={week}
-              className="rounded-2xl overflow-hidden"
-              style={{
-                background: "var(--surface)",
-                border: `1px solid ${isCurrent ? "#60a5fa" : "var(--border)"}`,
-              }}>
-              <button
-                onClick={() => setExpandedWeek(isOpen ? null : week)}
-                className="w-full flex items-center justify-between p-4"
-              >
-                <div className="flex items-center gap-3">
-                  {allDone
-                    ? <CheckCircle2 size={18} style={{ color: "var(--accent)" }} />
-                    : <Circle size={18} style={{ color: isCurrent ? "#60a5fa" : "var(--border)" }} />
-                  }
-                  <div className="text-left">
-                    <p className="font-semibold text-sm">
-                      Week {week}
-                      {isCurrent && <span className="ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-md"
-                        style={{ background: "#1d4ed8", color: "#93c5fd" }}>CURRENT</span>}
-                    </p>
-                    <p className="text-xs" style={{ color: "var(--muted)" }}>
-                      {wSessions.filter((s) => !s.optional && s.completed).length} / {requiredCount} sessions
-                    </p>
-                  </div>
-                </div>
-                <ChevronRight size={16} style={{
-                  color: "var(--muted)",
-                  transform: isOpen ? "rotate(90deg)" : "none",
-                  transition: "transform 0.2s",
-                }} />
-              </button>
-
-              {isOpen && (
-                <div className="px-4 pb-4 space-y-2">
-                  {wSessions.some((s) => s.type === "interval") && (
-                    <div className="rounded-xl p-3 flex gap-2"
-                      style={{ background: "rgba(245,158,11,0.10)", border: "1px solid rgba(245,158,11,0.30)" }}>
-                      <AlertTriangle size={14} className="mt-0.5 shrink-0" style={{ color: "#f59e0b" }} />
-                      <p className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
-                        <span className="font-semibold" style={{ color: "#f59e0b" }}>VO₂ max week.</span>{" "}
-                        {haveSchedule ? (
-                          <>
-                            Best done on a rest day
-                            {restShort && <> (<span className="font-semibold">{restShort}</span>)</>}.
-                            {avoidShort && (
-                              <> Keep it off <span className="font-semibold">{avoidShort}</span> — that&apos;s around your
-                                heavy squat day. Leave ~48h between heavy squats and hard running.</>
-                            )}
-                          </>
-                        ) : (
-                          <>Do it on a rest day, and keep it off your heavy squat day and the day before — leave ~48h
-                            between heavy squats and hard running.</>
-                        )}
-                      </p>
-                    </div>
-                  )}
-                  {wSessions.map((s) => (
-                    <div key={s.id}
-                      className="rounded-xl p-3"
-                      style={{ background: "var(--surface-2)" }}>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 rounded-full"
-                            style={{ background: TYPE_COLORS[s.type] }} />
-                          <span className="text-xs font-semibold"
-                            style={{ color: TYPE_COLORS[s.type] }}>
-                            {TYPE_LABELS[s.type]}
-                          </span>
-                          {s.optional && (
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md"
-                              style={{ background: "var(--surface)", color: "var(--muted)" }}>
-                              OPTIONAL
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Clock size={11} style={{ color: "var(--muted)" }} />
-                          <span className="text-xs" style={{ color: "var(--muted)" }}>
-                            {s.target_duration_min} min
-                          </span>
-                        </div>
-                      </div>
-                      <p className="text-xs mt-2 leading-relaxed" style={{ color: "var(--muted)" }}>
-                        {s.target_description}
-                      </p>
-                      {s.completed ? (
-                        <div className="mt-2 flex items-center gap-1">
-                          <CheckCircle2 size={12} style={{ color: "var(--accent)" }} />
-                          <span className="text-xs" style={{ color: "var(--accent)" }}>
-                            Completed
-                            {s.actual_duration_min && ` · ${s.actual_duration_min} min`}
-                            {s.actual_distance_km && ` · ${s.actual_distance_km}km`}
-                          </span>
-                        </div>
-                      ) : (
-                        <Link
-                          href={`/running/log?session_id=${s.id}`}
-                          className="mt-2 inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all active:scale-95"
-                          style={{ background: "#1d4ed8", color: "#93c5fd" }}
-                        >
-                          Log this run
-                        </Link>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
+function RunCard({ session: s }: { session: RunningSession }) {
+  return (
+    <div className="rounded-xl p-3" style={{ background: "var(--surface)", border: "1px solid var(--border)" }}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full" style={{ background: TYPE_COLORS[s.type] }} />
+          <span className="text-xs font-semibold" style={{ color: TYPE_COLORS[s.type] }}>
+            {TYPE_LABELS[s.type]}
+          </span>
+          {s.optional && (
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md"
+              style={{ background: "var(--surface-2)", color: "var(--muted)" }}>
+              OPTIONAL
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          <Clock size={11} style={{ color: "var(--muted)" }} />
+          <span className="text-xs" style={{ color: "var(--muted)" }}>{s.target_duration_min} min</span>
+        </div>
       </div>
+
+      <p className="text-xs mt-2 leading-relaxed" style={{ color: "var(--muted)" }}>
+        {s.target_description}
+      </p>
+
+      {s.completed ? (
+        <div className="mt-2 flex items-center gap-1">
+          <CheckCircle2 size={12} style={{ color: "var(--accent)" }} />
+          <span className="text-xs" style={{ color: "var(--accent)" }}>
+            Completed
+            {s.actual_duration_min && ` · ${s.actual_duration_min} min`}
+            {s.actual_distance_km && ` · ${s.actual_distance_km}km`}
+          </span>
+        </div>
+      ) : (
+        <Link href={`/running/log?session_id=${s.id}`}
+          className="mt-2 inline-flex items-center gap-1 text-xs font-semibold px-3 py-1.5 rounded-lg transition-all active:scale-95"
+          style={{ background: "#1d4ed8", color: "#93c5fd" }}>
+          Log this run
+        </Link>
+      )}
     </div>
   );
 }

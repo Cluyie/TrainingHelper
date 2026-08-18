@@ -1,7 +1,9 @@
 export type Equipment = "gym" | "home_cable";
 export type Phase = 1 | 2 | 3;
 export type DayOfWeek = "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday";
-export type ExerciseCategory = "hinge" | "squat" | "push" | "pull" | "carry" | "core" | "shoulder_health" | "power";
+// "calf" covers ankle/calf work — gait, balance and Achilles resilience all decline
+// early, and nothing else in the library trains them directly.
+export type ExerciseCategory = "hinge" | "squat" | "push" | "pull" | "carry" | "core" | "shoulder_health" | "power" | "calf";
 export type SplitType = "full_body" | "upper_lower" | "ppl" | "ppl_x2" | "gym_home";
 export type RunType = "easy" | "interval" | "long" | "unstructured";
 
@@ -39,7 +41,21 @@ export interface UserSettings {
   equipment: Equipment[];
   current_phase: Phase;
   program_start_date: string | null;
-  strength_block_start: string | null; // anchors the repeating 6-week deload cycle
+  // Immutable anchor for the 6-week block cycle. Everything — deload week, block
+  // index, Phase 3 running rotation — is derived from it by modulo. Never advanced;
+  // see lib/deload.ts.
+  strength_block_start: string | null;
+  // Shoulder-gated strength tier, manual. Separate from running_phase on purpose:
+  // your shoulders have no bearing on whether your legs and lungs can take intervals.
+  // (current_phase above.)
+  running_phase: Phase;
+  // Block anchor the running-phase bump was last evaluated against, so the ⅔
+  // completion gate fires exactly once per block rather than on every read.
+  running_phase_block: string | null;
+  // Days the gym is unreachable. Home sessions and runs may still be placed here.
+  no_gym_days: DayOfWeek[];
+  // ── Vestigial: the planner now owns all placement. Retained so old rows and
+  // unrelated code paths keep working, but no longer read by generation.
   training_days: DayOfWeek[];
   home_days: DayOfWeek[];
   stretching_days_per_week: number;
@@ -111,9 +127,21 @@ export interface WorkoutSet {
   exercise?: Exercise;
 }
 
+// Derived state of the 6-week block cycle. blockIndex counts completed blocks since
+// the immutable strength_block_start and drives the Phase 3 A/B/C running rotation.
+export interface BlockState {
+  blockStart: string; // ISO date — the anchor, unchanged
+  weekInBlock: number; // 1..6
+  blockIndex: number; // 0, 1, 2, ... never stored
+  isDeload: boolean; // week 6
+}
+
 export interface RunningSession {
   id: string;
+  // Week within the current 6-week block (1..6). Was 1..16 under the retired
+  // 16-week calendar program.
   program_week: number;
+  day_of_week: DayOfWeek | null; // assigned by the week planner
   date: string | null;
   type: RunType;
   target_duration_min: number;

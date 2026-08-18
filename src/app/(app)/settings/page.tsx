@@ -15,117 +15,46 @@ const DAYS: { key: DayOfWeek; short: string }[] = [
   { key: "sunday", short: "Sun" },
 ];
 
-type DayState = "rest" | "gym" | "home";
-
-function buildDayMap(gymDays: DayOfWeek[], homeDays: DayOfWeek[]): Record<DayOfWeek, DayState> {
-  const map = {} as Record<DayOfWeek, DayState>;
-  for (const d of DAYS) map[d.key] = "rest";
-  for (const d of gymDays) map[d] = "gym";
-  for (const d of homeDays) map[d] = "home";
-  return map;
-}
-
-// Gentle, non-blocking recovery note based on how the week is laid out (wraps Sun→Mon).
-function getRecoveryTip(map: Record<DayOfWeek, DayState>): string | null {
-  const states = DAYS.map((d) => map[d.key]); // monday … sunday
-  const n = states.length;
-  const active = states.map((s) => s !== "rest");
-
-  let maxStreak = 0;
-  if (active.every(Boolean)) {
-    maxStreak = n;
-  } else {
-    let streak = 0;
-    for (let i = 0; i < n * 2; i++) {
-      if (active[i % n]) { streak++; maxStreak = Math.max(maxStreak, streak); }
-      else streak = 0;
-    }
-  }
-
-  let gymAdjacent = false;
-  for (let i = 0; i < n; i++) {
-    if (states[i] === "gym" && states[(i + 1) % n] === "gym") gymAdjacent = true;
-  }
-
-  if (maxStreak >= 4) {
-    return "You've got 4+ training days in a row — consider a rest day in the middle so your body recovers and adapts.";
-  }
-  if (gymAdjacent) {
-    return "Two gym days are back-to-back. That works, but a rest or home day between them gives your legs and joints more recovery.";
-  }
-  return null;
-}
-
 export default function SettingsPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [settings, setSettings] = useState<Partial<UserSettings>>({
-    training_days: ["monday", "wednesday", "friday"],
-    home_days: ["tuesday", "thursday"],
     equipment: ["gym"],
     current_phase: 1,
+    no_gym_days: ["saturday", "sunday"],
     stretching_days_per_week: 3,
     goal: "maintain",
   });
-
-  const [dayMap, setDayMap] = useState<Record<DayOfWeek, DayState>>(() =>
-    buildDayMap(
-      ["monday", "wednesday", "friday"],
-      ["tuesday", "thursday"]
-    )
-  );
 
   useEffect(() => {
     fetch("/api/settings")
       .then((r) => r.json())
       .then((data) => {
-        if (data) {
-          setSettings(data);
-          setDayMap(buildDayMap(data.training_days ?? [], data.home_days ?? []));
-        }
+        if (data) setSettings(data);
       })
       .finally(() => setLoading(false));
   }, []);
 
-  function cycleDay(day: DayOfWeek) {
-    setDayMap((prev) => {
-      const current = prev[day];
-      const gymDays = Object.entries(prev).filter(([, v]) => v === "gym").length;
-      const homeDays = Object.entries(prev).filter(([, v]) => v === "home").length;
-      const totalActive = gymDays + homeDays;
-
-      let next: DayState;
-      if (current === "rest") {
-        // Can add if under 6 total
-        if (totalActive >= 6) return prev;
-        next = "gym";
-      } else if (current === "gym") {
-        next = "home";
-      } else {
-        next = "rest";
-      }
-
-      return { ...prev, [day]: next };
+  function toggleNoGym(day: DayOfWeek) {
+    setSettings((s) => {
+      const current = s.no_gym_days ?? [];
+      const next = current.includes(day)
+        ? current.filter((d) => d !== day)
+        : [...current, day];
+      return { ...s, no_gym_days: next };
     });
   }
-
-  // Sync dayMap → settings
-  useEffect(() => {
-    const gymDays = DAYS.filter((d) => dayMap[d.key] === "gym").map((d) => d.key);
-    const homeDays = DAYS.filter((d) => dayMap[d.key] === "home").map((d) => d.key);
-    setSettings((s) => ({ ...s, training_days: gymDays, home_days: homeDays }));
-  }, [dayMap]);
 
   const profileComplete =
     !!settings.sex && !!settings.birth_year && !!settings.height_cm &&
     !!settings.activity_level && !!settings.goal;
 
+  // Three gym sessions need three reachable weekdays. Below that the planner drops to
+  // two rather than stacking them — worth warning about, but not worth blocking on.
+  const gymDaysFeasible = 7 - (settings.no_gym_days ?? []).length >= 3;
+
   async function handleSave() {
-    const gymDays = settings.training_days ?? [];
-    const homeDays = settings.home_days ?? [];
-    const total = gymDays.length + homeDays.length;
-    if (total < 3 || total > 6) return;
     if (!profileComplete) return;
 
     setSaving(true);
@@ -146,12 +75,7 @@ export default function SettingsPage() {
     router.push("/login");
   }
 
-  const gymDays = Object.values(dayMap).filter((v) => v === "gym").length;
-  const homeDays = Object.values(dayMap).filter((v) => v === "home").length;
-  const totalActive = gymDays + homeDays;
-  const daysValid = totalActive >= 3 && totalActive <= 6;
-  const canSave = daysValid && profileComplete;
-  const recoveryTip = getRecoveryTip(dayMap);
+  const canSave = profileComplete;
 
   if (loading) {
     return (
@@ -169,66 +93,55 @@ export default function SettingsPage() {
         <h1 className="text-xl font-bold">Settings</h1>
       </div>
 
-      {/* Training days */}
-      <Section title="Training Schedule">
+      {/* Gym availability — the ONLY placement input left. The planner owns every
+          other scheduling decision, because strength and running share one recovery
+          budget and can only be balanced when one thing places them both. */}
+      <Section title="Gym Availability">
         <div className="flex items-start gap-2 mb-4">
           <Info size={13} className="mt-0.5 shrink-0" style={{ color: "var(--muted)" }} />
           <p className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
-            Tap to cycle each day: <span className="font-semibold">Rest → Gym → Home → Rest</span>.
-            Pick 3–6 training days total. Gym needs weights; home is bodyweight only.
+            Tap any day you <span className="font-semibold">can&apos;t get to the gym</span>.
+            Home sessions and runs can still be scheduled on those days — only the three
+            gym days are kept away.
           </p>
         </div>
 
         <div className="grid grid-cols-7 gap-1.5 mb-3">
           {DAYS.map(({ key, short }) => {
-            const state = dayMap[key];
-            const isGym = state === "gym";
-            const isHome = state === "home";
+            const blocked = (settings.no_gym_days ?? []).includes(key);
             return (
-              <button key={key} onClick={() => cycleDay(key)}
+              <button key={key} onClick={() => toggleNoGym(key)}
                 className="h-14 rounded-xl text-xs font-bold flex flex-col items-center justify-center gap-1 transition-all active:scale-95"
                 style={{
-                  background: isGym ? "var(--accent)" : isHome ? "#10b981" : "var(--surface-2)",
-                  color: isGym || isHome ? "#fff" : "var(--muted)",
-                  border: `1px solid ${isGym ? "var(--accent)" : isHome ? "#10b981" : "var(--border)"}`,
+                  background: blocked ? "var(--surface-2)" : "var(--accent)",
+                  color: blocked ? "var(--muted)" : "#fff",
+                  border: `1px solid ${blocked ? "var(--border)" : "var(--accent)"}`,
                 }}
               >
-                {isGym ? <Dumbbell size={12} /> : isHome ? <Home size={12} /> : null}
+                {blocked ? <Home size={12} /> : <Dumbbell size={12} />}
                 {short}
               </button>
             );
           })}
         </div>
 
-        <div className="flex gap-2 text-xs">
-          <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-full" style={{ background: "var(--accent)" }} />
-            <span style={{ color: "var(--muted)" }}>{gymDays} gym</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <div className="w-3 h-3 rounded-full" style={{ background: "#10b981" }} />
-            <span style={{ color: "var(--muted)" }}>{homeDays} home</span>
-          </div>
-          <span className="ml-auto font-semibold" style={{ color: daysValid ? "var(--accent)" : "var(--muted)" }}>
-            {totalActive} {totalActive === 1 ? "day" : "days"}
-          </span>
-        </div>
-
-        {daysValid && (
-          <div className="mt-3 px-3 py-2 rounded-xl text-xs" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>
-            <span className="font-semibold">Program: </span>
-            Gym days rotate A → B → C (Hinge/Pull · Squat/Push · Hip/Carry).
-            Home days rotate A → B (Push/Pull/Core · Lower/Pull/Core), bodyweight only.
-          </div>
-        )}
-
-        {daysValid && recoveryTip && (
-          <div className="mt-2 flex items-start gap-2 px-3 py-2 rounded-xl text-xs"
+        {!gymDaysFeasible && (
+          <div className="flex items-start gap-2 px-3 py-2 rounded-xl text-xs"
             style={{ background: "#f59e0b1a", color: "#b45309" }}>
             <Info size={13} className="mt-0.5 shrink-0" />
-            <span>{recoveryTip}</span>
+            <span>
+              Fewer than three days left for the gym. The planner will drop to two gym
+              sessions rather than cram them together.
+            </span>
           </div>
         )}
+
+        <div className="mt-3 px-3 py-2 rounded-xl text-xs" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>
+          <span className="font-semibold">Your week: </span>
+          three gym days (Hinge/Pull · Squat/Push · Glute/Pull/Carry), two home days
+          (bodyweight, table and ab wheel), the week&apos;s runs, and one full rest day.
+          Hard running is kept clear of heavy legs automatically.
+        </div>
       </Section>
 
       {/* Training Phase */}
@@ -366,8 +279,6 @@ export default function SettingsPage() {
         style={{ background: "var(--accent)", color: "#fff" }}>
         {saving
           ? "Generating program…"
-          : !daysValid
-          ? `Select 3–6 training days (${totalActive} chosen)`
           : !profileComplete
           ? "Complete your profile above to continue"
           : "Save & Generate Program"}

@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Dumbbell, Wind, PersonStanding, ChevronRight, Flame, Calendar, Settings, AlertTriangle, Utensils, Scale, TrendingDown, TrendingUp, Check, Footprints } from "lucide-react";
 import type { PlannedWorkout, RunningSession, NutrientTarget, BodyWeight, WorkoutSession } from "@/types";
-import { getRunSchedulingHint } from "@/lib/run-schedule";
 import { foodTotals, supplementTotals, targetMap, todayISO, toISODate, shiftDate } from "@/lib/nutrition-client";
 import { weightTrend } from "@/lib/targets";
 import { NUTRIENT_MAP } from "@/lib/nutrients";
@@ -68,7 +67,10 @@ export default function Dashboard() {
     const today = todayISO();
     Promise.all([
       fetch(`/api/nutrition/log?date=${today}`).then((r) => r.json()).catch(() => []),
-      fetch("/api/nutrition/targets").then((r) => r.json()).catch(() => []),
+      // Send the date. Without it the route resolves "today" from the SERVER clock,
+      // which is UTC in production — so late in the evening this card would pair
+      // today's food log with tomorrow's activity-adjusted targets.
+      fetch(`/api/nutrition/targets?date=${today}`).then((r) => r.json()).catch(() => []),
       fetch("/api/nutrition/supplements").then((r) => r.json()).catch(() => []),
     ]).then(([entries, targets, supps]) => {
       const e = Array.isArray(entries) ? entries : [];
@@ -83,7 +85,6 @@ export default function Dashboard() {
   const todayKey = TODAY_KEYS[new Date().getDay()];
   const todayWorkout = workouts.find((w) => w.day_of_week === todayKey);
   const weekWorkouts = workouts;
-  const runHint = getRunSchedulingHint(workouts);
 
   // "Done" per workout: a completed session this week (Mon-start) links to it.
   // Null plan links (program regenerated after logging) count for today's card.
@@ -160,30 +161,23 @@ export default function Dashboard() {
       {/* Next run */}
       {nextRun && (
         <TodayCard
-          title={`Next Run: Week ${nextRun.program_week}`}
+          title={nextRun.day_of_week ? `Next Run: ${DAY_NAMES[nextRun.day_of_week]}` : "Next Run"}
           subtitle={nextRun.target_description.slice(0, 60) + "…"}
           icon={<Wind size={20} style={{ color: "#60a5fa" }} />}
           href="/running"
         />
       )}
 
-      {/* VO2 max scheduling heads-up for the current running week */}
+      {/* VO2 heads-up. The planner already places intervals clear of heavy legs, so this
+          says what the day is for rather than offering scheduling advice to act on. */}
       {vo2ThisWeek && (
         <div className="rounded-2xl p-3 flex gap-2"
           style={{ background: "rgba(245,158,11,0.10)", border: "1px solid rgba(245,158,11,0.30)" }}>
           <AlertTriangle size={15} className="mt-0.5 shrink-0" style={{ color: "#f59e0b" }} />
           <p className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
             <span className="font-semibold" style={{ color: "#f59e0b" }}>This week has a VO₂ max run.</span>{" "}
-            {runHint.haveSchedule ? (
-              <>
-                Best on a rest day
-                {runHint.restShort && <> (<span className="font-semibold">{runHint.restShort}</span>)</>}
-                {runHint.avoidShort && <>, and off <span className="font-semibold">{runHint.avoidShort}</span> (around your squat day)</>}.
-                Leave ~48h between heavy squats and hard running.
-              </>
-            ) : (
-              <>Do it on a rest day, away from your heavy squat day and the day before.</>
-            )}
+            It&apos;s already scheduled clear of your heavy lower-body day. Hard means 90-95% HR —
+            controlled and repeatable, never a sprint.
           </p>
         </div>
       )}

@@ -20,15 +20,17 @@ async function writeBlockStart(userId: string, date: string) {
     .eq("user_id", userId);
 }
 
-// Current 6-week block state. Persists the start date on first read and whenever the
-// lazy advance rolls into a new block.
+// Current 6-week block state. The anchor is immutable (see lib/deload.ts), so it is
+// written exactly once — on first read, when none is stored yet. Writing it on block
+// advancement would reset the derived blockIndex and break the Phase 3 running
+// rotation, which must survive regeneration.
 export async function GET() {
   const auth = await getAuthUser();
   if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
   const stored = await readBlockStart(auth.userId);
   const state = computeBlockState(stored);
-  if (state.blockStart !== stored) {
+  if (!stored) {
     await writeBlockStart(auth.userId, state.blockStart);
   }
   return NextResponse.json(state);

@@ -1,5 +1,18 @@
-// ── GYM EXERCISES (Phase 1 — shoulder-safe, lower-back-safe) ─────────────────
-// home_compatible: false — require machines, cables, or significant load
+// ── EXERCISE LIBRARY ─────────────────────────────────────────────────────────
+//
+// Two flags decide where an exercise can appear, and neither is a hand-maintained
+// gym/home duplicate — both derive from `equipment`:
+//
+//   Gym-eligible  — the equipment list contains genuinely loaded kit (dumbbell,
+//                   barbell, cable, machine, kettlebell, medicine ball, belt, band).
+//                   Push-ups, planks, jumps and ab-wheel work therefore never occupy
+//                   a gym slot: there is no reason to travel to a gym to do them.
+//   home_compatible — doable with a sturdy table, an ab wheel and bodyweight. That is
+//                   the entire home inventory; there are no dumbbells at home.
+//
+// An exercise can be both. Bulgarian Split Squat is loaded with dumbbells at the gym
+// and done bodyweight with the rear foot on a table at home — the same movement,
+// meaningfully better with load, so it earns a place in each pool.
 
 export const EXERCISES = [
 
@@ -33,7 +46,7 @@ export const EXERCISES = [
     phase_unlock: 1,
     shoulder_safe: true,
     lower_back_safe: true,
-    home_compatible: false,
+    home_compatible: true,
     description: "Hands behind head, soft knees, hinge forward from hips until you feel hamstring tension. Drive hips forward to return. Teaches the hip-hinge pattern with no equipment.",
     muscle_groups: ["hamstrings", "glutes", "lower_back"],
   },
@@ -79,8 +92,8 @@ export const EXERCISES = [
     phase_unlock: 1,
     shoulder_safe: true,
     lower_back_safe: true,
-    home_compatible: false,
-    description: "Rear foot elevated on bench, front foot forward. Lower back knee toward floor with control. Research shows single-leg strength is the single best predictor of longevity outcomes. Each leg.",
+    home_compatible: true,
+    description: "Rear foot elevated on bench, front foot forward. Lower back knee toward floor with control. Research shows single-leg strength is the single best predictor of longevity outcomes. Each leg. At home, rest the rear foot on a sturdy table or chair and go bodyweight — it is hard enough without load.",
     muscle_groups: ["quads", "glutes", "hamstrings"],
   },
   {
@@ -299,7 +312,10 @@ export const EXERCISES = [
   {
     name: "Pull-Up",
     category: "pull",
-    equipment: ["bodyweight"],
+    // The bar matters: this is bodyweight, but it needs gym kit. Tagged ["bodyweight"]
+    // alone it was excluded from the gym pool by the loaded-equipment rule and could
+    // never be selected — home has a table for rows, not a bar.
+    equipment: ["bodyweight", "pull_up_bar"],
     phase_unlock: 2,
     shoulder_safe: true,
     lower_back_safe: true,
@@ -459,7 +475,9 @@ export const EXERCISES = [
   {
     name: "Band External Rotation",
     category: "shoulder_health",
-    equipment: ["bodyweight"],
+    // Needs a band, which the old ["bodyweight"] listing didn't say — that made it
+    // ineligible for the gym pool AND unavailable at home, so it was unreachable.
+    equipment: ["band"],
     phase_unlock: 1,
     shoulder_safe: true,
     lower_back_safe: true,
@@ -537,6 +555,246 @@ export const EXERCISES = [
     home_compatible: false,
     description: "Explosive hip hinge — snap the hips to float the bell to chest height, arms relaxed, brace hard at the top. The hips do the work, never the arms or lower back. Powerful reps, never to failure; do it fresh, before the heavy lifting. Trains hip power and conditioning with low joint stress.",
     muscle_groups: ["glutes", "hamstrings", "core", "grip"],
+  },
+  {
+    name: "Medicine Ball Slam",
+    category: "power",
+    equipment: ["medicine_ball"],
+    phase_unlock: 1,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: false,
+    description: "Reach the ball overhead, then drive it into the floor with the whole body — hips, trunk and arms together. Full-body explosive output with no landing impact and no eccentric load, so it costs almost nothing to recover from. 3-5 hard reps, full rest, never a conditioning circuit.",
+    muscle_groups: ["core", "lats", "glutes", "shoulders"],
+  },
+  {
+    name: "Medicine Ball Rotational Throw",
+    category: "power",
+    equipment: ["medicine_ball"],
+    phase_unlock: 1,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: false,
+    description: "Stand side-on to a wall, load the back hip, then throw the ball into the wall by rotating from the hips — arms just deliver what the hips produce. Rotational power is the most neglected athletic quality and the first to disappear; this trains it with almost no joint cost. Each side.",
+    muscle_groups: ["obliques", "core", "glutes", "shoulders"],
+  },
+
+  // ── PHASE 2/3 UPGRADES ────────────────────────────────
+  // Reachable only once the corresponding phase is selected. Before this rework
+  // several of these existed in the library but no slot could ever pick them.
+  {
+    name: "Barbell Hip Thrust",
+    category: "hinge",
+    equipment: ["barbell"],
+    phase_unlock: 2,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: false,
+    description: "Upper back on a bench, barbell across the hips with a pad. Drive the hips up, squeeze hard at the top, hold a beat. The loaded progression of the dumbbell hip thrust — far more glute load with the spine still barely involved.",
+    muscle_groups: ["glutes", "hamstrings"],
+  },
+  {
+    name: "Cable Chest Press",
+    category: "push",
+    equipment: ["cable"],
+    phase_unlock: 1,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: false,
+    description: "Split stance, handles at chest height, press forward and slightly together. Constant tension through the whole range and a free path for the shoulder blades — kinder to a cranky shoulder than a fixed bar, and the cable keeps tension where dumbbells lose it at lockout.",
+    muscle_groups: ["chest", "front_delts", "triceps", "core"],
+  },
+  {
+    name: "Single Arm Cable Row",
+    category: "pull",
+    equipment: ["cable"],
+    phase_unlock: 1,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: false,
+    description: "Half-kneeling or split stance, one handle, row to the hip while resisting rotation. Unilateral pulling that exposes side-to-side differences and trains anti-rotation at the same time. Each side.",
+    muscle_groups: ["lats", "rhomboids", "biceps", "core"],
+  },
+  {
+    name: "Half-Kneeling Cable Pulldown",
+    category: "pull",
+    equipment: ["cable"],
+    phase_unlock: 1,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: false,
+    description: "Half-kneeling under a high pulley, pull the handle down to the shoulder with the elbow driving down and back. A vertical pull that doesn't require hanging bodyweight, so it's the accessible entry to overhead pulling strength. The half-kneeling stance stops the lower back arching to help.",
+    muscle_groups: ["lats", "biceps", "core"],
+  },
+  {
+    name: "Half-Kneeling Cable Chop",
+    category: "core",
+    equipment: ["cable"],
+    phase_unlock: 1,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: false,
+    description: "Half-kneeling, side-on to the cable set high. Pull the handle down and across the body with straight-ish arms, resisting the rotation the whole way. Anti-rotation under load — the trunk's most clinically relevant job, and one bodyweight work can't load properly. Each side.",
+    muscle_groups: ["obliques", "core"],
+  },
+  {
+    name: "Barbell Overhead Press",
+    category: "push",
+    equipment: ["barbell"],
+    phase_unlock: 3,
+    shoulder_safe: false,
+    lower_back_safe: true,
+    home_compatible: false,
+    description: "Standing, bar from the front rack to lockout overhead, ribs down and glutes tight so the lower back doesn't take the strain. The most demanding vertical press and Phase 3 only — it needs the overhead capacity built by the landmine and dumbbell presses first. Stop the set the moment the shoulder pinches.",
+    muscle_groups: ["front_delts", "triceps", "upper_chest", "core"],
+  },
+  {
+    name: "Weighted Pull-Up",
+    category: "pull",
+    equipment: ["bodyweight", "weight_belt"],
+    phase_unlock: 3,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: false,
+    description: "Pull-ups with a belt or dumbbell between the feet. Dead hang to chin over the bar, full control on the way down. Once bodyweight pull-ups are comfortable for 8+ reps this is how vertical pulling keeps progressing rather than turning into an endurance test.",
+    muscle_groups: ["lats", "biceps", "core"],
+  },
+
+  // ── HOME PROGRESSIONS ─────────────────────────────────
+  // Home has no load to add — a table, an ab wheel and bodyweight is the whole
+  // inventory — so progression there is leverage, and the phase ladder IS the
+  // progression rather than a bonus on top of it.
+  {
+    name: "Feet-Elevated Push-Up",
+    category: "push",
+    equipment: ["bodyweight"],
+    phase_unlock: 2,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: true,
+    description: "Push-up with the feet on a chair or table. Shifting weight forward puts noticeably more load on the chest and shoulders, and biases the upper chest. The first real step up from the standard push-up — keep the body in one line and don't let the hips sag.",
+    muscle_groups: ["chest", "front_delts", "triceps", "core"],
+  },
+  {
+    name: "Deficit Push-Up",
+    category: "push",
+    equipment: ["bodyweight"],
+    phase_unlock: 3,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: true,
+    description: "Hands on two books or low blocks so the chest descends below the hands. The extra range is where the difficulty comes from — go slowly at the bottom and stop short of any shoulder pinch. The hardest bodyweight horizontal press before one-arm work.",
+    muscle_groups: ["chest", "front_delts", "triceps"],
+  },
+  {
+    name: "Deficit Pike Push-Up",
+    category: "push",
+    equipment: ["bodyweight"],
+    phase_unlock: 3,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: true,
+    description: "Pike push-up with the hands elevated on books, or the feet on a table for a steeper angle. The closer the torso comes to vertical the closer this gets to a handstand press — the strongest vertical push available without any equipment.",
+    muscle_groups: ["front_delts", "triceps", "upper_chest"],
+  },
+  {
+    name: "Feet-Elevated Inverted Row",
+    category: "pull",
+    equipment: ["bodyweight"],
+    phase_unlock: 2,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: true,
+    description: "Inverted row under the table with the heels up on a chair, body horizontal. Raising the feet to torso height moves you toward pulling full bodyweight — the natural next step once standard inverted rows pass 12 clean reps.",
+    muscle_groups: ["lats", "rhomboids", "biceps", "rear_delts"],
+  },
+  {
+    name: "Archer Inverted Row",
+    category: "pull",
+    equipment: ["bodyweight"],
+    phase_unlock: 3,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: true,
+    description: "Inverted row pulling mainly with one arm while the other stays nearly straight out to the side. Shifts most of the load onto the working arm — the route toward a one-arm row when there is no way to add weight. Each side.",
+    muscle_groups: ["lats", "rhomboids", "biceps", "core"],
+  },
+  {
+    name: "Long-Lever Rollout",
+    category: "core",
+    equipment: ["ab_wheel"],
+    phase_unlock: 2,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: true,
+    description: "Ab wheel rollout starting from a taller kneeling position with the hips further forward, lengthening the lever. Considerably harder than the standard rollout. The rule doesn't change: the moment the lower back starts to arch, the set is over.",
+    muscle_groups: ["core", "lats", "hip_flexors"],
+  },
+  {
+    name: "Standing Rollout",
+    category: "core",
+    equipment: ["ab_wheel"],
+    phase_unlock: 3,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: true,
+    description: "Ab wheel rollout from standing, rolling out as far as a neutral spine allows and pulling back with the abs. One of the hardest anti-extension exercises there is. Build to it from a partial range against a wall — never let the lower back give way.",
+    muscle_groups: ["core", "lats", "hip_flexors"],
+  },
+  {
+    name: "Feet-Elevated Single Leg Glute Bridge",
+    category: "hinge",
+    equipment: ["bodyweight"],
+    phase_unlock: 2,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: true,
+    description: "Single leg glute bridge with the working heel up on a chair or table. The longer lever and greater hip range make it markedly harder than the floor version, and it brings the hamstring in alongside the glute. Each side.",
+    muscle_groups: ["glutes", "hamstrings", "core"],
+  },
+  {
+    name: "Nordic Hamstring Curl",
+    category: "hinge",
+    equipment: ["bodyweight"],
+    phase_unlock: 3,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: true,
+    description: "Kneel with the heels hooked under a sturdy table, hips locked straight, and lower the torso toward the floor as slowly as you can before catching yourself with the hands. Push back up. One of the most effective hamstring exercises that exists and among the best-evidenced for reducing hamstring injury — and it needs nothing but a table.",
+    muscle_groups: ["hamstrings", "glutes", "core"],
+  },
+  {
+    name: "Skater Squat",
+    category: "squat",
+    equipment: ["bodyweight"],
+    phase_unlock: 3,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: true,
+    description: "Single-leg squat with the rear leg trailing behind, lowering the back knee toward a cushion while the torso leans forward to counterbalance. Far more knee-friendly than a pistol squat and just as demanding. The hardest bodyweight single-leg pattern in the program. Each side.",
+    muscle_groups: ["quads", "glutes", "hamstrings"],
+  },
+  {
+    name: "Single-Leg Calf Raise",
+    category: "calf",
+    equipment: ["bodyweight"],
+    phase_unlock: 1,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: true,
+    description: "Stand on one foot on a step with the heel hanging off, rise as high as possible, lower slowly under control. Calf strength and Achilles stiffness underpin walking speed and balance, both of which decline early and predict independence in old age — and running loads them hard. Each side.",
+    muscle_groups: ["calves", "ankles"],
+  },
+  {
+    name: "Plank with Shoulder Tap",
+    category: "core",
+    equipment: ["bodyweight"],
+    phase_unlock: 1,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: true,
+    description: "High plank, feet wide, tap the opposite shoulder with one hand while keeping the hips completely still. The anti-rotation work home training otherwise lacks — there is no cable at home for a Pallof press, and staying square here is the same job. Each tap is a rep.",
+    muscle_groups: ["core", "obliques", "front_delts"],
   },
 ];
 

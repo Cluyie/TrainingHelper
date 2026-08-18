@@ -79,7 +79,9 @@ export default function AnalyticsPage() {
     const start = shiftDate(end, -27);
     Promise.all([
       fetch(`/api/nutrition/log?start=${start}&end=${end}`).then((r) => r.json()).catch(() => []),
-      fetch("/api/nutrition/targets").then((r) => r.json()).catch(() => []),
+      // Local date, matching the log range above — the route otherwise falls back to
+      // the server's UTC clock.
+      fetch(`/api/nutrition/targets?date=${end}`).then((r) => r.json()).catch(() => []),
       fetch("/api/nutrition/supplements").then((r) => r.json()).catch(() => []),
     ]).then(([e, t, s]) => {
       setNutEntries(Array.isArray(e) ? e : []);

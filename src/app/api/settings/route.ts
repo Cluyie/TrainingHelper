@@ -3,7 +3,7 @@ import { getSupabaseAdmin } from "@/lib/supabase";
 import { getAuthUser } from "@/lib/auth";
 export const dynamic = "force-dynamic";
 import type { UserSettings } from "@/types";
-import { resolveExercisesForTemplates, generateWorkoutPlan } from "@/lib/program-generator";
+import { regenerateProgram } from "@/lib/persist-week";
 
 export async function GET() {
   const auth = await getAuthUser();
@@ -87,58 +87,4 @@ export async function PATCH(request: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
-}
-
-async function regenerateProgram(settings: UserSettings, userId: string) {
-  // Must succeed before inserting the new plan — otherwise old workouts stack.
-  const { error: delErr } = await getSupabaseAdmin()
-    .from("planned_workouts")
-    .delete()
-    .eq("user_id", userId);
-
-  if (delErr) {
-    throw new Error(`failed to clear old program: ${delErr.message}`);
-  }
-
-  const { data: exercises } = await getSupabaseAdmin()
-    .from("exercises")
-    .select("*");
-
-  if (!exercises || exercises.length === 0) return;
-
-  const templates = generateWorkoutPlan(settings);
-  const resolved = resolveExercisesForTemplates(templates, exercises, settings.current_phase);
-
-  for (const { templateLabel, templateDay, isHomeWorkout, exercises: exList } of resolved) {
-    const orderInWeek = resolved.findIndex((r) => r.templateDay === templateDay) + 1;
-
-    const { data: pw, error: pwErr } = await getSupabaseAdmin()
-      .from("planned_workouts")
-      .insert({
-        user_id: userId,
-        label: templateLabel,
-        day_of_week: templateDay,
-        order_in_week: orderInWeek,
-        is_home_workout: isHomeWorkout,
-      })
-      .select()
-      .single();
-
-    if (pwErr || !pw) continue;
-
-    if (exList.length > 0) {
-      await getSupabaseAdmin().from("planned_exercises").insert(
-        exList.map((e) => ({
-          user_id: userId,
-          planned_workout_id: pw.id,
-          exercise_id: e.exercise.id,
-          order_index: e.order_index,
-          target_sets: e.target_sets,
-          target_reps_min: e.target_reps_min,
-          target_reps_max: e.target_reps_max,
-          progression_increment_kg: e.progression_increment_kg,
-        }))
-      );
-    }
-  }
 }

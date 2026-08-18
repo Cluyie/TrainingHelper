@@ -67,7 +67,7 @@ function LogRunForm() {
         <div className="rounded-2xl p-4"
           style={{ background: "var(--surface)", border: "1px solid #1d4ed8" }}>
           <p className="text-xs font-semibold mb-1" style={{ color: "#60a5fa" }}>
-            Week {session.program_week} Target
+            Today&apos;s Target
           </p>
           <p className="text-sm" style={{ color: "var(--muted)" }}>
             {session.target_description}
