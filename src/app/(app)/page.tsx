@@ -40,7 +40,11 @@ export default function Dashboard() {
       fetch("/api/workouts").then((r) => r.json()),
       fetch("/api/running").then((r) => r.json()),
       fetch("/api/sessions?limit=20").then((r) => r.json()).catch(() => []),
-    ]).then(([s, w, runs, sess]) => {
+      // Which block-week we're in. The dashboard has to scope the next run to it:
+      // program_week is 1..6 and repeats, so an unrun leftover from an earlier block
+      // would otherwise resurface here as the next thing to do.
+      fetch("/api/running/week").then((r) => r.json()).catch(() => null),
+    ]).then(([s, w, runs, sess, blockState]) => {
       setSessions(Array.isArray(sess) ? sess : []);
       // First-time / incomplete profile → finish onboarding before using the app.
       const profileComplete =
@@ -56,11 +60,18 @@ export default function Dashboard() {
       // Ordered by DAY, counting forward from today. The API returns runs in
       // session order, so taking the first one showed whichever run happened to be
       // session 1 — Saturday's long run could outrank today's easy one.
-      const runArr: RunningSession[] = runs ?? [];
+      // /api/running answers with { error } on a failed rebuild, not an array.
+      const allRuns: RunningSession[] = Array.isArray(runs) ? runs : [];
       const todayIdx = new Date().getDay();
       const todayName = TODAY_KEYS[todayIdx];
       const fromToday = (day: string) =>
         (TODAY_KEYS.indexOf(day) - TODAY_KEYS.indexOf(todayName) + 7) % 7;
+
+      const blockIndex = blockState?.blockIndex ?? 0;
+      const weekInBlock = blockState?.weekInBlock ?? 1;
+      const runArr = allRuns.filter(
+        (r) => r.block_index === blockIndex && r.program_week === weekInBlock
+      );
 
       const incomplete = runArr
         .filter((r) => !r.completed && !r.optional && r.day_of_week)
@@ -69,10 +80,10 @@ export default function Dashboard() {
       const next = incomplete[0] ?? null;
       setNextRun(next);
       setRunIsToday(!!next?.day_of_week && fromToday(next.day_of_week) === 0);
-      // Flag if the current running week contains a VO2 (interval) session.
-      setVo2ThisWeek(
-        next != null && runArr.some((r) => r.program_week === next.program_week && r.type === "interval")
-      );
+      // Flag if the current running week contains a VO2 (interval) session. Still
+      // gated on there being a run left to do — the note is guidance for the week
+      // ahead, not something to keep showing once everything is logged.
+      setVo2ThisWeek(next != null && runArr.some((r) => r.type === "interval"));
       setLoading(false);
     });
   }, [router]);

@@ -25,6 +25,18 @@
 // The one intentional exception is manualDeloadStart(), which rewrites the anchor by
 // design so the current week becomes week 6. That necessarily shifts the derived
 // rotation position — a manual deload restarts the block cycle, rotation included.
+//
+// ── The anchor is SNAPPED TO MONDAY ──────────────────────────────────────────
+// The anchor is whatever date the block happened to start on, and weeks were counted
+// from that date. A Wednesday anchor meant the block week rolled over on Wednesdays —
+// while the plan it drives is laid out Monday→Sunday by day_of_week. Every Monday and
+// Tuesday you were shown the previous block-week's schedule, already logged, with
+// nothing left to do.
+//
+// So every derivation snaps the stored anchor back to the Monday of its week first.
+// Counting from a Monday makes weekInBlock change on Mondays, which is both what the
+// rendered week looks like and what a person means by "this week". The stored date is
+// left alone — snapping is idempotent, so re-deriving from it forever is stable.
 
 import type { BlockState } from "@/types";
 
@@ -35,6 +47,17 @@ export type { BlockState };
 
 function startOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+// The Monday of the week containing d. getDay() is 0 for Sunday, so Sunday goes back
+// six days rather than one — the week runs Monday→Sunday, matching DAY_ORDER in the
+// planner and every weekday list in the UI.
+function startOfWeek(d: Date): Date {
+  const day = d.getDay();
+  const back = (day + 6) % 7; // Mon→0, Tue→1, … Sun→6
+  const monday = startOfDay(d);
+  monday.setDate(monday.getDate() - back); // calendar-safe across DST
+  return monday;
 }
 
 // Whole days between two dates, counted on the calendar rather than the clock.
@@ -58,10 +81,12 @@ function toDateOnly(d: Date): string {
 
 // Current block state derived from the immutable stored anchor.
 //
-// The returned blockStart is the anchor itself, unchanged — callers should persist it
-// only when none was stored yet (first run), never on block advancement.
+// The returned blockStart is the anchor snapped to the Monday of its week — callers
+// should persist it only when none was stored yet (first run), never on block
+// advancement. A stored anchor that is already a Monday comes back untouched.
 export function computeBlockState(blockStart: string | null, today = new Date()): BlockState {
-  const start = blockStart ? startOfDay(new Date(blockStart + "T00:00:00")) : startOfDay(today);
+  const raw = blockStart ? startOfDay(new Date(blockStart + "T00:00:00")) : startOfDay(today);
+  const start = startOfWeek(raw);
   const weeksElapsed = Math.max(0, Math.floor(daysBetween(start, today) / 7));
 
   const weekInBlock = (weeksElapsed % BLOCK_WEEKS) + 1; // 1..6
@@ -78,8 +103,12 @@ export function computeBlockState(blockStart: string | null, today = new Date())
 // Anchor date that makes the CURRENT week the deload week (week 6) — used by the
 // manual deload control. This deliberately rewrites the anchor, so it also restarts
 // the block cycle: the next block begins at blockIndex 1 relative to the new anchor.
+//
+// Counts back from THIS week's Monday, so the anchor it writes is itself a Monday and
+// the deload covers the whole current Monday→Sunday week rather than a window offset
+// by whichever weekday the button happened to be pressed on.
 export function manualDeloadStart(today = new Date()): string {
-  const start = startOfDay(today);
+  const start = startOfWeek(startOfDay(today));
   start.setDate(start.getDate() - (BLOCK_WEEKS - 1) * 7); // calendar-safe across DST
   return toDateOnly(start);
 }

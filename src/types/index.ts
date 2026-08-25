@@ -141,6 +141,10 @@ export interface RunningSession {
   // Week within the current 6-week block (1..6). Was 1..16 under the retired
   // 16-week calendar program.
   program_week: number;
+  // Which block the row belongs to — the derived BlockState.blockIndex at the time it
+  // was generated. program_week alone repeats every six weeks, so without this a
+  // completed run collides with the same week number in every later block.
+  block_index: number;
   day_of_week: DayOfWeek | null; // assigned by the week planner
   date: string | null;
   type: RunType;

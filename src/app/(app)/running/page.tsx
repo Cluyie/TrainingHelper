@@ -54,7 +54,8 @@ export default function RunningPage() {
       fetch("/api/running/week").then((r) => r.json()).catch(() => null),
     ])
       .then(([runData, blockState]: [RunningSession[], BlockState | null]) => {
-        setSessions(runData ?? []);
+        // /api/running answers with { error } on a failed rebuild, not an array.
+        setSessions(Array.isArray(runData) ? runData : []);
         setBlock(blockState);
       })
       .finally(() => setLoading(false));
@@ -63,14 +64,20 @@ export default function RunningPage() {
   if (loading) return <Loader />;
 
   const weekInBlock = block?.weekInBlock ?? 1;
+  const blockIndex = block?.blockIndex ?? 0;
   const phase = block?.runningPhase ?? 1;
 
-  // This block-week's runs. The day_of_week check is what separates live sessions from
-  // history: program_week now means week-in-block (1-6), so completed rows left over
-  // from the retired 16-week program collide with it numerically. Those legacy rows
-  // were never placed by the planner, so they have no weekday — and they stay out of
-  // the schedule while remaining available to analytics.
-  const thisWeek = sessions.filter((s) => s.program_week === weekInBlock && s.day_of_week);
+  // This block-week's runs. block_index is what keeps the six week numbers from
+  // colliding across blocks — without it, last block's completed week 1 was still
+  // showing as "this week" six weeks later.
+  //
+  // The day_of_week check separates live sessions from history: completed rows left
+  // over from the retired 16-week program share these week numbers and default to
+  // block 0. Those legacy rows were never placed by the planner, so they have no
+  // weekday — and they stay out of the schedule while remaining available to analytics.
+  const thisWeek = sessions.filter(
+    (s) => s.block_index === blockIndex && s.program_week === weekInBlock && s.day_of_week
+  );
   const required = thisWeek.filter((s) => !s.optional);
   const doneCount = required.filter((s) => s.completed).length;
 
