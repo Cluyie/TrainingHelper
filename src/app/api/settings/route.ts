@@ -26,7 +26,15 @@ export async function POST(request: NextRequest) {
   const auth = await getAuthUser();
   if (!auth) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
 
-  const body: Partial<UserSettings> = await request.json();
+  const raw: Partial<UserSettings> = await request.json();
+
+  // The block clock is owned by api/strength/cycle, not by whatever the settings form
+  // happened to be holding. The settings page round-trips the whole row, so a tab left
+  // open across a deload would post back the old anchor and silently rewind the block.
+  // Same for the phase marker, which api/running maintains.
+  const body = { ...raw };
+  delete body.strength_block_start;
+  delete body.running_phase_block;
 
   const { data: existing } = await getSupabaseAdmin()
     .from("user_settings")
