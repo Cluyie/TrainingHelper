@@ -17,7 +17,10 @@
 // ============================================================
 
 // ---- tuning constants ----
-export const ACTIVITY_WINDOW_DAYS = 14; // trailing window for the activity baseline
+// Trailing window for the activity baseline — matches the adaptive TDEE window
+// (targets.ts), since the baseline must be the average activity that TDEE
+// already contains for the redistribution to stay zero-sum around it.
+export const ACTIVITY_WINDOW_DAYS = 28;
 export const ADJUSTMENT_CLAMP_KCAL = 500; // max daily shift in either direction
 const RUN_NET_KCAL_PER_KG_KM = 0.9; // net running cost ≈ 0.9 kcal/kg/km
 const ASSUMED_EASY_PACE_MIN_PER_KM = 6.5; // distance fallback when only duration was logged

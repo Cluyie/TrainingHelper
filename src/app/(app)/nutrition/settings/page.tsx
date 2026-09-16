@@ -148,7 +148,7 @@ export default function NutritionSettingsPage() {
                   Maintenance ≈ {meta.maintenance} kcal
                 </span>{" "}
                 {meta.source === "adaptive"
-                  ? "— learned from your last 2 weeks of weight + food."
+                  ? "— learned from your weight trend + food over the last 4 weeks."
                   : "— formula estimate; sharpens as you log weight + food for ~2 weeks."}
               </p>
               <p className="mt-1">
@@ -164,7 +164,7 @@ export default function NutritionSettingsPage() {
                   <span className="font-semibold" style={{ color: "var(--accent)" }}>
                     {meta.activity.adjustment >= 0 ? "+" : ""}{meta.activity.adjustment} kcal
                   </span>
-                  ) — while the weekly average stays on target.
+                  ) — while the 4-week average stays on target.
                 </p>
               )}
             </>

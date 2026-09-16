@@ -6,6 +6,7 @@ import {
   computeTargets,
   adjustTargetsForActivity,
   latestAvgWeight,
+  ADAPTIVE_WINDOW_DAYS,
   type Profile,
   type WeightPoint,
   type IntakePoint,
@@ -38,7 +39,7 @@ function shiftDays(iso: string, days: number): string {
 // the target as it stood then. `netCarbTarget` (g) balances the fat target.
 async function computeForUser(userId: string, netCarbTarget: number, date: string) {
   const supabase = getSupabaseAdmin();
-  const start = shiftDays(date, -27);
+  const start = shiftDays(date, -(ADAPTIVE_WINDOW_DAYS - 1));
   const actStart = shiftDays(date, -(ACTIVITY_WINDOW_DAYS - 1));
 
   const [

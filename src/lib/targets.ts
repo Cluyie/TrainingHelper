@@ -4,8 +4,8 @@
 // Calories are NOT a static formula. The Mifflin-St Jeor formula is only the
 // cold-start estimate; once there are ~2 weeks of weigh-ins + food logs we
 // estimate TRUE maintenance from the energy-balance identity
-//   TDEE ≈ mean daily intake + (weight change in kg × 7700) / days
-// and let it self-correct (a control loop). Protein scales by bodyweight but
+//   TDEE ≈ mean daily intake − (weight trend in kg/day × 7700)
+// over a trailing 28-day window and let it self-correct (a control loop). Protein scales by bodyweight but
 // is goal-banded and stable. See memory: nutrition-coaching-philosophy.
 //
 // All tuning constants live here.
@@ -34,8 +34,14 @@ const PROTEIN_PER_KG: Record<Goal, number> = {
   lean_gain: 1.9,
 };
 const MA_WINDOW = 7; // days for the weight moving average (cancels water noise)
-const ADAPTIVE_WINDOW_DAYS = 14; // trailing window for the data-derived TDEE
-const MIN_LOGGED_DAYS = 10; // need this many well-logged days in the window
+// Trailing window for the data-derived TDEE. Day-to-day weigh-ins scatter
+// ~±0.5 kg around the trend; a 28-day regression pins the slope to about
+// ±100 kcal/day, where 14 days gives ±200+ and swings with every weigh-in.
+export const ADAPTIVE_WINDOW_DAYS = 28;
+const MIN_SPAN_DAYS = 13; // first → last weigh-in must cover ~2 weeks (cold start)
+const MIN_WEIGH_INS = 7; // a regression needs enough points to be meaningful
+const MIN_LOGGED_DAYS = 10; // absolute minimum of well-logged intake days…
+const MIN_LOGGED_FRACTION = 0.7; // …and at least this share of the intake span
 const MIN_KCAL_FLOOR = 800; // a day counts as "logged" only above this
 const ADAPTIVE_CLAMP = 0.25; // adaptive TDEE must stay within ±25 % of formula
 
@@ -92,9 +98,32 @@ export function formulaTDEE(profile: Profile, weightKg: number): number | null {
   return bmr * ACTIVITY_FACTORS[activity_level];
 }
 
+/** Least-squares slope of weight against day number (kg/day). */
+function weightSlope(points: WeightPoint[]): number {
+  const xs = points.map((p) => daysBetween(points[0].date, p.date));
+  const ys = points.map((p) => Number(p.weight_kg));
+  const mx = xs.reduce((s, x) => s + x, 0) / xs.length;
+  const my = ys.reduce((s, y) => s + y, 0) / ys.length;
+  let num = 0;
+  let den = 0;
+  for (let i = 0; i < xs.length; i++) {
+    num += (xs[i] - mx) * (ys[i] - my);
+    den += (xs[i] - mx) ** 2;
+  }
+  return den > 0 ? num / den : 0;
+}
+
 /**
  * Data-derived maintenance from the trailing window:
- *   TDEE ≈ meanIntake + (Δsmoothed-weight × 7700) / spanDays
+ *   TDEE ≈ meanIntake − (regression slope kg/day × 7700)
+ *
+ * The slope is a least-squares fit through EVERY weigh-in in the window, so no
+ * single reading — or a reading entering/leaving a moving-average endpoint —
+ * can swing the result. Intake is averaged over exactly the days the slope
+ * covers: a morning weigh-in reflects the food eaten BEFORE it, so the fit from
+ * first weigh-in `a` to last weigh-in `b` pairs with intake days a … b−1. That
+ * also keeps the day still being logged out of the average.
+ *
  * Returns null until there's enough well-logged data; clamps to ±25 % of the
  * formula to reject noise from incomplete logging.
  */
@@ -108,27 +137,25 @@ export function adaptiveTDEE(
   const endDate = sortedW[sortedW.length - 1].date;
 
   // weigh-ins within the window
-  const winW = sortedW.filter((w) => daysBetween(w.date, endDate) <= ADAPTIVE_WINDOW_DAYS - 1 && daysBetween(w.date, endDate) >= 0);
-  if (winW.length < 2) return null;
+  const winW = sortedW.filter((w) => {
+    const back = daysBetween(w.date, endDate);
+    return back >= 0 && back <= ADAPTIVE_WINDOW_DAYS - 1;
+  });
+  if (winW.length < MIN_WEIGH_INS) return null;
+  const startDate = winW[0].date;
+  const spanDays = daysBetween(startDate, endDate);
+  if (spanDays < MIN_SPAN_DAYS) return null;
 
-  // smoothed start/end weight via trailing MA at each end of the window
-  const ma = movingAverageWeights(sortedW);
-  const startW = ma.find((p) => daysBetween(p.date, endDate) <= ADAPTIVE_WINDOW_DAYS - 1) ?? ma[0];
-  const endW = ma[ma.length - 1];
-  const spanDays = daysBetween(startW.date, endW.date);
-  if (spanDays < ADAPTIVE_WINDOW_DAYS - 4) return null; // need the window roughly spanned
-
-  // well-logged intake days within the window
-  const winIntake = intake.filter(
-    (d) =>
-      d.kcal >= MIN_KCAL_FLOOR &&
-      daysBetween(d.date, endDate) <= ADAPTIVE_WINDOW_DAYS - 1 &&
-      daysBetween(d.date, endDate) >= 0
-  );
-  if (winIntake.length < MIN_LOGGED_DAYS) return null;
+  // well-logged intake days the weight change reflects: [first weigh-in, last weigh-in)
+  const winIntake = intake.filter((d) => {
+    const fromStart = daysBetween(startDate, d.date);
+    return d.kcal >= MIN_KCAL_FLOOR && fromStart >= 0 && fromStart <= spanDays - 1;
+  });
+  const minLogged = Math.max(MIN_LOGGED_DAYS, Math.ceil(spanDays * MIN_LOGGED_FRACTION));
+  if (winIntake.length < minLogged) return null;
 
   const meanIntake = winIntake.reduce((s, d) => s + d.kcal, 0) / winIntake.length;
-  const tdee = meanIntake + ((startW.avg - endW.avg) * KCAL_PER_KG) / spanDays;
+  const tdee = meanIntake - weightSlope(winW) * KCAL_PER_KG;
 
   // reject implausible values from sparse/incomplete logging
   const lo = formula * (1 - ADAPTIVE_CLAMP);
