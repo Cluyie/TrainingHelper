@@ -31,9 +31,11 @@ export interface NutrientDef {
 // USDA nutrient numbers referenced below (for maintainers):
 //   208/1008 energy(kcal) · 203 protein · 204 fat · 205 carbs · 291 fiber · 269 sugars
 //   304 magnesium · 306 potassium · 301 calcium · 307 sodium · 303 iron · 309 zinc
-//   317 selenium · 314 iodine
+//   317 selenium · 314 iodine · 305 phosphorus · 312 copper · 315 manganese
 //   328/324 vitamin D · 401 vitamin C · 418 B12 · 417/435 folate · 415 B6
 //   430 vitamin K1 · 428 vitamin K2 · 629 EPA · 621 DHA
+//   323 vitamin E (alpha-tocopherol) · 404 thiamin · 405 riboflavin
+//   406 niacin (preformed, not NE) · 421 choline
 
 export const NUTRIENTS: NutrientDef[] = [
   // ---- Tier 1: macros (always visible) ----
@@ -48,20 +50,28 @@ export const NUTRIENTS: NutrientDef[] = [
   { key: "magnesium_mg", label: "Magnesium", unit: "mg", tier: 2, group: "mineral", usda: [304], defaultTarget: 400, direction: "floor" },
   { key: "potassium_mg", label: "Potassium", unit: "mg", tier: 2, group: "mineral", usda: [306], defaultTarget: 3400, direction: "floor" },
   { key: "calcium_mg", label: "Calcium", unit: "mg", tier: 2, group: "mineral", usda: [301], defaultTarget: 1000, direction: "floor" },
+  { key: "phosphorus_mg", label: "Phosphorus", unit: "mg", tier: 2, group: "mineral", usda: [305], defaultTarget: 700, direction: "floor" },
   { key: "sodium_mg", label: "Sodium", unit: "mg", tier: 2, group: "mineral", usda: [307], defaultTarget: 2300, direction: "limit" },
   { key: "iron_mg", label: "Iron", unit: "mg", tier: 2, group: "mineral", usda: [303], defaultTarget: 8, direction: "floor" },
   { key: "zinc_mg", label: "Zinc", unit: "mg", tier: 2, group: "mineral", usda: [309], defaultTarget: 11, direction: "floor" },
+  { key: "copper_mg", label: "Copper", unit: "mg", tier: 2, group: "mineral", usda: [312], defaultTarget: 0.9, direction: "floor" },
+  { key: "manganese_mg", label: "Manganese", unit: "mg", tier: 2, group: "mineral", usda: [315], defaultTarget: 2.3, direction: "floor" },
   { key: "selenium_ug", label: "Selenium", unit: "µg", tier: 2, group: "mineral", usda: [317], defaultTarget: 55, direction: "floor" },
   { key: "iodine_ug", label: "Iodine", unit: "µg", tier: 2, group: "mineral", usda: [314], defaultTarget: 150, direction: "floor" },
 
   // ---- Tier 2: vitamins ----
   { key: "vitamin_d_ug", label: "Vitamin D", unit: "µg", tier: 2, group: "vitamin", usda: [328, 324], defaultTarget: 20, direction: "floor" },
   { key: "vitamin_c_mg", label: "Vitamin C", unit: "mg", tier: 2, group: "vitamin", usda: [401], defaultTarget: 90, direction: "floor" },
+  { key: "vitamin_e_mg", label: "Vitamin E", unit: "mg", tier: 2, group: "vitamin", usda: [323], defaultTarget: 15, direction: "floor" },
+  { key: "thiamin_mg", label: "Thiamin (B1)", unit: "mg", tier: 2, group: "vitamin", usda: [404], defaultTarget: 1.2, direction: "floor" },
+  { key: "riboflavin_mg", label: "Riboflavin (B2)", unit: "mg", tier: 2, group: "vitamin", usda: [405], defaultTarget: 1.3, direction: "floor" },
+  { key: "niacin_mg", label: "Niacin (B3)", unit: "mg", tier: 2, group: "vitamin", usda: [406], defaultTarget: 16, direction: "floor" },
   { key: "vitamin_b12_ug", label: "Vitamin B12", unit: "µg", tier: 2, group: "vitamin", usda: [418], defaultTarget: 2.4, direction: "floor" },
   { key: "folate_ug", label: "Folate (B9)", unit: "µg", tier: 2, group: "vitamin", usda: [435, 417], defaultTarget: 400, direction: "floor" },
   { key: "vitamin_b6_mg", label: "Vitamin B6", unit: "mg", tier: 2, group: "vitamin", usda: [415], defaultTarget: 1.3, direction: "floor" },
   { key: "vitamin_k1_ug", label: "Vitamin K1", unit: "µg", tier: 2, group: "vitamin", usda: [430], defaultTarget: 120, direction: "floor" },
   { key: "vitamin_k2_ug", label: "Vitamin K2", unit: "µg", tier: 2, group: "vitamin", usda: [428], defaultTarget: 100, direction: "floor" },
+  { key: "choline_mg", label: "Choline", unit: "mg", tier: 2, group: "vitamin", usda: [421], defaultTarget: 550, direction: "floor" },
 
   // ---- Tier 2: functional ----
   { key: "omega3_epadha_mg", label: "Omega-3 (EPA+DHA)", unit: "mg", tier: 2, group: "functional", usda: [629, 621], defaultTarget: 500, direction: "floor" },

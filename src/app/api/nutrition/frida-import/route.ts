@@ -33,7 +33,19 @@ const PARAM_TO_KEY: Record<string, string> = {
   "40": "vitamin_b6_mg",
   "164": "vitamin_k1_ug",
   "441": "vitamin_k2_ug",
+  "214": "phosphorus_mg",
+  "166": "copper_mg",
+  "187": "manganese_mg",
+  "37": "thiamin_mg",
+  "39": "riboflavin_mg",
+  "294": "niacin_mg", // preformed niacin (matches USDA 406), not 203 niacin equivalents
+  "116": "choline_mg",
 };
+// Vitamin E: 276 alpha-tocopherol (matches USDA 323), falling back to 135
+// "E-vitamin" (alpha-TE). The two are identical in every food that has both;
+// 135 covers ~100 more foods.
+const PARAM_VIT_E = "276";
+const PARAM_VIT_E_TE = "135";
 const PARAM_CARBS = "170"; // Carbohydrate by difference (total) — for net carbs
 const PARAM_FREE_SUGARS = "418"; // Free Sugars (WHO) = refined carbs; populated for all foods
 const PARAM_EPA = "87"; // C20:5,n-3 (g/100g)
@@ -159,6 +171,9 @@ export async function POST(request: NextRequest) {
       if (!validKeys.has(key)) continue;
       per100g[key] = pid in raw ? round(raw[pid]) : null;
     }
+
+    const vitE = raw[PARAM_VIT_E] ?? raw[PARAM_VIT_E_TE];
+    per100g["vitamin_e_mg"] = vitE == null ? null : round(vitE);
 
     // omega-3 (EPA + DHA), g → mg
     const epa = raw[PARAM_EPA];
