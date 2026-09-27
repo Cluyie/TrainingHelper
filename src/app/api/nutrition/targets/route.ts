@@ -6,10 +6,12 @@ import {
   computeTargets,
   adjustTargetsForActivity,
   latestAvgWeight,
+  applyDayFlags,
   ADAPTIVE_WINDOW_DAYS,
   type Profile,
   type WeightPoint,
   type IntakePoint,
+  type DayFlag,
 } from "@/lib/targets";
 import {
   computeActivityAdjustment,
@@ -50,6 +52,7 @@ async function computeForUser(userId: string, netCarbTarget: number, date: strin
     { data: strength },
     { data: stretches },
     { data: steps },
+    { data: dayFlags, error: flagErr },
   ] = await Promise.all([
     supabase
       .from("user_settings")
@@ -96,7 +99,17 @@ async function computeForUser(userId: string, netCarbTarget: number, date: strin
       .eq("user_id", userId)
       .gte("date", actStart)
       .lte("date", date),
+    supabase
+      .from("nutrition_day_flags")
+      .select("date, estimated_kcal")
+      .eq("user_id", userId)
+      .gte("date", start)
+      .lte("date", date),
   ]);
+
+  // Without the marks the estimate would silently count under-logged days as real
+  // intake — the exact error the marks exist to prevent — so a failed read fails.
+  if (flagErr) throw new Error(`failed to read day marks: ${flagErr.message}`);
 
   const profile = (settings ?? {
     sex: null, birth_year: null, height_cm: null, activity_level: null, goal: null,
@@ -109,7 +122,10 @@ async function computeForUser(userId: string, netCarbTarget: number, date: strin
     const cal = Number((f.nutrients as Record<string, number> | null)?.calories ?? 0);
     byDate.set(f.date, (byDate.get(f.date) ?? 0) + cal);
   }
-  const intake: IntakePoint[] = Array.from(byDate, ([date, kcal]) => ({ date, kcal }));
+  const intake: IntakePoint[] = applyDayFlags(
+    Array.from(byDate, ([date, kcal]) => ({ date, kcal })),
+    (dayFlags ?? []) as DayFlag[]
+  );
 
   const computed = computeTargets(profile, weightPoints, intake, netCarbTarget);
 
@@ -154,9 +170,14 @@ export async function GET(request: NextRequest) {
   const overrides = new Map((data ?? []).map((r) => [r.nutrient_key, r]));
   const netCarbTarget =
     overrides.get("net_carbs_g")?.target_amount ?? NUTRIENT_MAP["net_carbs_g"].defaultTarget;
-  const { computed, activity, goal, hasWeight } = await computeForUser(
-    auth.userId, netCarbTarget, date
-  );
+  let result: Awaited<ReturnType<typeof computeForUser>>;
+  try {
+    result = await computeForUser(auth.userId, netCarbTarget, date);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "failed to compute targets";
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+  const { computed, activity, goal, hasWeight } = result;
 
   // A manual calories override disables the activity adjustment entirely.
   const activityActive = computed != null && activity != null && !overrides.has("calories");

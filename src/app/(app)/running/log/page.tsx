@@ -1,11 +1,19 @@
 "use client";
 
 import { useEffect, useState, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Wind, CheckCircle2, ChevronDown, ChevronUp } from "lucide-react";
 import { todayISO } from "@/lib/nutrition-client";
-import type { RunningSession } from "@/types";
+import type { RunType } from "@/types";
 import RpeSelector from "@/components/ui/RpeSelector";
+
+// What kind of run it was — recorded for later analysis, not prescribed.
+const RUN_TYPES: { key: RunType; label: string }[] = [
+  { key: "easy", label: "Zone 2" },
+  { key: "long", label: "Long / easy" },
+  { key: "interval", label: "Intervals / hard" },
+  { key: "unstructured", label: "Other" },
+];
 
 const CONDITIONS_KEY = "runConditions";
 
@@ -23,10 +31,10 @@ const SURFACES = [
 
 function LogRunForm() {
   const router = useRouter();
-  const searchParams = useSearchParams();
-  const sessionId = searchParams.get("session_id");
 
-  const [session, setSession] = useState<RunningSession | null>(null);
+  const [date, setDate] = useState(todayISO());
+  const [type, setType] = useState<RunType>("easy");
+  const [error, setError] = useState<string | null>(null);
   const [duration, setDuration] = useState("");
   const [distance, setDistance] = useState("");
   const [notes, setNotes] = useState("");
@@ -42,20 +50,14 @@ function LogRunForm() {
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
 
-  // Heart-rate recovery is only informative after a hard effort, so it opens by
-  // default on interval days and stays collapsed otherwise.
-  const isHard = session?.type === "interval";
+  // Heart-rate recovery is only informative after a hard effort, so it opens when
+  // the run is marked as intervals/hard and stays collapsed otherwise.
+  const isHard = type === "interval";
 
-  useEffect(() => {
-    if (!sessionId) return;
-    fetch("/api/running")
-      .then((r) => r.json())
-      .then((data: RunningSession[]) => {
-        const s = data.find((x) => x.id === sessionId);
-        setSession(s ?? null);
-        if (s?.type === "interval") setShowHrr(true);
-      });
-  }, [sessionId]);
+  function chooseType(t: RunType) {
+    setType(t);
+    if (t === "interval") setShowHrr(true);
+  }
 
   // Surface and temperature barely change between runs, so carry the last ones
   // forward. Fields you have to re-enter every time are the ones that end up
@@ -82,8 +84,9 @@ function LogRunForm() {
   const num = (v: string) => (v.trim() === "" ? null : Number(v));
 
   async function handleSave() {
-    if (!sessionId || !duration) return;
+    if (!duration || !date) return;
     setSaving(true);
+    setError(null);
 
     try {
       localStorage.setItem(CONDITIONS_KEY, JSON.stringify({ surface, temp }));
@@ -91,13 +94,12 @@ function LogRunForm() {
       /* not worth failing the save over */
     }
 
-    await fetch("/api/running", {
-      method: "PATCH",
+    const res = await fetch("/api/running", {
+      method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        id: sessionId,
-        completed: true,
-        date: todayISO(),
+        date,
+        type,
         actual_duration_min: parseInt(duration),
         actual_distance_km: distance ? parseFloat(distance) : null,
         notes: notes || null,
@@ -112,7 +114,15 @@ function LogRunForm() {
         temperature_c: num(temp),
         surface: surface || null,
       }),
-    });
+    }).catch(() => null);
+
+    // A save that didn't land must not show "Run logged!".
+    if (!res || !res.ok) {
+      const body = res ? await res.json().catch(() => null) : null;
+      setError(body?.error ?? "The run was not saved — check your connection and try again.");
+      setSaving(false);
+      return;
+    }
     setDone(true);
     setTimeout(() => router.push("/running"), 1500);
   }
@@ -133,22 +143,30 @@ function LogRunForm() {
         <h1 className="text-xl font-bold">Log Run</h1>
       </div>
 
-      {session && (
-        <div className="rounded-2xl p-4"
-          style={{ background: "var(--surface)", border: "1px solid #1d4ed8" }}>
-          <p className="text-xs font-semibold mb-1" style={{ color: "#60a5fa" }}>
-            Today&apos;s Target
-          </p>
-          <p className="text-sm" style={{ color: "var(--muted)" }}>
-            {session.target_description}
-          </p>
-          <p className="text-xs mt-1" style={{ color: "var(--muted)" }}>
-            {session.target_duration_min} min planned
-          </p>
-        </div>
-      )}
-
       <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Date *">
+            <input
+              type="date"
+              value={date}
+              max={todayISO()}
+              onChange={(e) => setDate(e.target.value)}
+              className="w-full h-12 px-3 rounded-xl outline-none text-sm"
+              style={{ background: "var(--surface-2)", color: "var(--foreground)", border: "1px solid var(--border)" }}
+            />
+          </Field>
+          <Field label="Type">
+            <select
+              value={type}
+              onChange={(e) => chooseType(e.target.value as RunType)}
+              className="w-full h-12 px-3 rounded-xl outline-none text-sm"
+              style={{ background: "var(--surface-2)", color: "var(--foreground)", border: "1px solid var(--border)" }}
+            >
+              {RUN_TYPES.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+            </select>
+          </Field>
+        </div>
+
         <Field label="Duration (minutes) *">
           <input
             type="number"
@@ -267,9 +285,15 @@ function LogRunForm() {
         </Field>
       </div>
 
+      {error && (
+        <p className="text-sm rounded-xl px-3 py-2" style={{ background: "#ef44441a", color: "#ef4444" }}>
+          {error}
+        </p>
+      )}
+
       <button
         onClick={handleSave}
-        disabled={!duration || saving}
+        disabled={!duration || !date || saving}
         className="w-full h-14 rounded-2xl font-bold text-base transition-all active:scale-95 disabled:opacity-50"
         style={{ background: "#2563eb", color: "#fff" }}
       >

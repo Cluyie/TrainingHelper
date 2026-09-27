@@ -55,7 +55,10 @@ export interface WeeklyStat {
 export function weeklyStats(
   entries: FoodLogEntry[],
   supps: Supplement[],
-  targets: NutrientTarget[]
+  targets: NutrientTarget[],
+  // Days marked "didn't track properly": their logs are knowingly incomplete, so
+  // they would understate every nutrient — left out of the averages entirely.
+  excludeDates: Set<string> = new Set()
 ): WeeklyStat[] {
   const suppMap = supplementTotals(supps);
   const tMap = targetMap(targets);
@@ -63,6 +66,7 @@ export function weeklyStats(
   // group entries by date
   const byDate = new Map<string, FoodLogEntry[]>();
   for (const e of entries) {
+    if (excludeDates.has(e.date)) continue;
     const list = byDate.get(e.date) ?? [];
     list.push(e);
     byDate.set(e.date, list);

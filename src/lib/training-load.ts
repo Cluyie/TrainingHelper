@@ -66,7 +66,7 @@ const HOME_WARMUP_MIN = 4;
 // a bar. Home has a table (inverted rows), not a bar, so pull-ups are gym-only.
 const LOADED_EQUIPMENT = [
   "dumbbell", "barbell", "cable", "machine", "kettlebell", "medicine_ball",
-  "weight_belt", "band", "pull_up_bar",
+  "weight_belt", "band", "pull_up_bar", "smith", "trap_bar", "plate",
 ];
 
 /**

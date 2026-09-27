@@ -58,10 +58,28 @@ src/
 - 3 wrong attempts → 10 min lockout
 
 ## How the program works
-Settings page → user picks 5 training days (Gym or Home) → POST /api/settings → regenerates program.
-
-Gym days cycle: A (Hinge+Pull) → B (Squat+Push) → C (Hip+Carry)
-Home days cycle: A (Core+Push) → B (Lower+Core)
+A FIXED, deterministic Tue–Sat strength week defined in `src/lib/program-generator.ts`
+(`PROGRAM`). No phases. Settings → "Save & Generate Program" writes it to planned_workouts.
+- Mon hard run (no strength) · Tue Upper Strength + Rotational Power · Wed Lower Strength +
+  Pull + Carry · Thu Upper Hypertrophy + Power (then Zone 2) · Fri Posterior Chain +
+  Unilateral + Core · Sat Low-Fatigue Full Body (then Zone 2) · Sun full rest.
+- Shoulders first: landmine press is the primary vertical press; cable external rotation
+  Tue/Thu. Each day has a concrete warm-up checklist and a ramp-up note.
+- Kit: Smith, dual cable, barbell, open trap bar, bench, pull-up station, landmine, one
+  medicine ball. No dumbbells/kettlebells.
+- 6-week blocks from `strength_block_start`: RIR ~3 → 1–2 over weeks 1–5, week 6 deload
+  (sets ≈ halved, ~12.5% lighter, 4+ RIR).
+- Decided at READ time in `GET /api/workouts` (never stored): the 3-week medicine-ball
+  rotation (Tue/Thu) and the pull ladder (lat pulldown → pull-up → weighted pull-up,
+  = the rung logged most recently).
+- Progression (`progression.ts`) is double progression gated on quality: no increase if
+  logged RIR < planned or `workout_sets.form_breakdown` is set. Power never adds load.
+  RIR is stored in `workout_sets.rpe` as 10 − RIR.
+- Running is a LOG only (`/running/log` POSTs completed runs). Nothing is planned.
+- Migration: `supabase/strength-program-v2.sql`, then POST /api/seed, then regenerate.
+- Food: `nutrition_day_flags` ("didn't track properly"; `supabase/nutrition-day-flags.sql`).
+  Marked day with estimate → counts as the estimate in the 28-day TDEE; without → dropped.
+  Always excluded from weekly nutrient averages. Weigh-ins unaffected.
 
 All exercises hardcoded in `src/lib/seed-data.ts`. No external exercise API.
 `/api/seed` just writes the hardcoded data to Supabase. Run once on setup.

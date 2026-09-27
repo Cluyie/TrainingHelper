@@ -55,6 +55,34 @@ export interface Profile {
 export interface WeightPoint { date: string; weight_kg: number }
 export interface IntakePoint { date: string; kcal: number }
 
+/** A day marked "didn't track properly", with an optional rough calorie estimate. */
+export interface DayFlag { date: string; estimated_kcal: number | null }
+
+/**
+ * Apply "didn't track properly" marks to daily intake before it reaches the
+ * maintenance estimate.
+ *
+ * An under-logged restaurant day looks like a low-intake day; left in, it drags the
+ * mean intake down and the estimate concludes maintenance is lower than it is. So a
+ * marked day counts as its estimate when there is one, and is dropped when there
+ * isn't. A marked day with nothing logged still counts if it has an estimate.
+ */
+export function applyDayFlags(intake: IntakePoint[], flags: DayFlag[]): IntakePoint[] {
+  if (flags.length === 0) return intake;
+  const byDate = new Map(flags.map((f) => [f.date, f]));
+  const out: IntakePoint[] = [];
+  for (const p of intake) {
+    const f = byDate.get(p.date);
+    if (!f) out.push(p);
+    else if (f.estimated_kcal != null) out.push({ date: p.date, kcal: f.estimated_kcal });
+  }
+  const logged = new Set(intake.map((p) => p.date));
+  for (const f of flags) {
+    if (!logged.has(f.date) && f.estimated_kcal != null) out.push({ date: f.date, kcal: f.estimated_kcal });
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date));
+}
+
 export interface Maintenance {
   tdee: number;
   source: "adaptive" | "formula";

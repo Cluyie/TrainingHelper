@@ -8,7 +8,15 @@ import { getProgressionSuggestion } from "@/lib/progression";
 import { todayISO } from "@/lib/nutrition-client";
 import { deloadSets, deloadWeight } from "@/lib/deload";
 import { isLoaded } from "@/lib/training-load";
-import RpeSelector from "@/components/ui/RpeSelector";
+import { multiDayExercises, restLabel, restSeconds as restSecondsFor, targetRir, PROGRAM } from "@/lib/program-generator";
+
+// Exercises that sit on more than one day with different rep ranges: their history
+// is read per weekday so Friday isn't judged against Monday's weight.
+const MULTI_DAY = multiDayExercises();
+
+// RIR is stored in the existing workout_sets.rpe column as RPE = 10 − RIR, so older
+// RPE entries and new RIR entries stay on one scale.
+const RIR_OPTIONS = [0, 1, 2, 3, 4, 5];
 
 const CATEGORY_COLOR: Record<string, string> = {
   power: "#ef4444",
@@ -43,8 +51,15 @@ export default function WorkoutPage() {
   const [weightInput, setWeightInput] = useState("");
   const [repsInput, setRepsInput] = useState("");
   const [showDescription, setShowDescription] = useState(false);
+  const [warmupOpen, setWarmupOpen] = useState(true);
+  const [warmupTicked, setWarmupTicked] = useState<Set<number>>(new Set());
   const [logging, setLogging] = useState(false);
   const [deload, setDeload] = useState(false);
+  const [weekInBlock, setWeekInBlock] = useState(1);
+  // Technique (or, for power, speed/height) broke down on this exercise today. Blocks
+  // the load increase next time. Keyed by planned_exercise id, like the RPE/RIR.
+  const [formFlag, setFormFlag] = useState<Record<string, boolean>>({});
+  const [logError, setLogError] = useState<string | null>(null);
   const [keepAwake, setKeepAwake] = useState(false);
   const [wakeLockSupported, setWakeLockSupported] = useState(false);
   // Session-scoped exercise swaps, keyed by planned_exercise id. Sets already store
@@ -120,7 +135,10 @@ export default function WorkoutPage() {
   useEffect(() => {
     fetch("/api/strength/cycle")
       .then((r) => r.json())
-      .then((s) => setDeload(!!s?.isDeload))
+      .then((s) => {
+        setDeload(!!s?.isDeload);
+        if (typeof s?.weekInBlock === "number") setWeekInBlock(s.weekInBlock);
+      })
       .catch(() => {});
   }, []);
 
@@ -190,10 +208,40 @@ export default function WorkoutPage() {
       const pes = workout.planned_exercises!;
       const entries = await Promise.all(
         pes.map(async (pe) => {
-          const exerciseId = swaps[pe.id]?.id ?? pe.exercise_id;
-          const res = await fetch(`/api/sets?exercise_id=${exerciseId}&recent_sessions=3`);
-          const recent: WorkoutSet[] = await res.json();
-          return [exerciseId, getProgressionSuggestion(pe, recent)] as const;
+          const swapped = swaps[pe.id];
+          const exerciseId = swapped?.id ?? pe.exercise_id;
+          const name = swapped?.name ?? pe.exercise?.name ?? "";
+          const base = `/api/sets?exercise_id=${exerciseId}&recent_sessions=3`;
+
+          // Same lift on several days → judge against this weekday only; fall back to
+          // another day's numbers as a reference, never as a progression decision.
+          let recent: WorkoutSet[] = [];
+          let fromOtherDay = false;
+          if (MULTI_DAY.has(name)) {
+            recent = await fetch(`${base}&day=${workout.day_of_week}`).then((r) => r.json());
+            if (Array.isArray(recent) && recent.length === 0) {
+              recent = await fetch(base).then((r) => r.json());
+              fromOtherDay = Array.isArray(recent) && recent.length > 0;
+            }
+          } else {
+            recent = await fetch(base).then((r) => r.json());
+          }
+          if (!Array.isArray(recent)) recent = [];
+
+          const role = pe.slot?.role;
+          const suggestion = getProgressionSuggestion(
+            // A swapped-in exercise isn't on the ladder, so it has no next rung.
+            pe,
+            recent,
+            swapped ? null : pe.slot?.next_rung ?? null,
+            {
+              rirMin: role ? targetRir(role, weekInBlock)?.min ?? null : null,
+              isPower: role === "power" || (swapped?.category ?? pe.exercise?.category) === "power",
+              unit: pe.slot?.unit,
+              fromOtherDay,
+            }
+          );
+          return [exerciseId, suggestion] as const;
         })
       );
       if (!cancelled) setSuggestions(Object.fromEntries(entries));
@@ -203,7 +251,7 @@ export default function WorkoutPage() {
     return () => {
       cancelled = true;
     };
-  }, [workout, swaps]);
+  }, [workout, swaps, weekInBlock]);
 
   useEffect(() => {
     if (!workout?.planned_exercises) return;
@@ -213,7 +261,8 @@ export default function WorkoutPage() {
     // what you're actually about to lift.
     const s = suggestions[swaps[pe.id]?.id ?? pe.exercise_id];
     const base = s?.suggested_weight_kg ?? 0;
-    const w = deload ? deloadWeight(base, pe.progression_increment_kg) : base;
+    // Power keeps its implement in the deload — a medicine ball has no 12.5% to lose.
+    const w = deload && pe.slot?.role !== "power" ? deloadWeight(base, pe.progression_increment_kg) : base;
     setWeightInput(w ? String(w) : "");
     setRepsInput(String(pe.target_reps_min));
     setShowDescription(false);
@@ -255,6 +304,7 @@ export default function WorkoutPage() {
     // Log against whatever is actually being done — the swap if there is one.
     const exerciseId = swaps[pe.id]?.id ?? pe.exercise_id;
     const existingSets = sets[exerciseId] ?? [];
+    setLogError(null);
     const res = await fetch("/api/sets", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -264,17 +314,67 @@ export default function WorkoutPage() {
         set_number: existingSets.length + 1,
         weight_kg: weight,
         reps,
-        // Whatever RPE is currently selected for this exercise. Null until you
-        // pick one — an unrecorded value is honest, a defaulted one is not.
+        // Whatever RIR is currently selected for this exercise (stored as RPE). Null
+        // until you pick one — an unrecorded value is honest, a defaulted one is not.
         rpe: rpeByExercise[pe.id] ?? null,
+        form_breakdown: formFlag[pe.id] === true,
       }),
-    });
+    }).catch(() => null);
+
+    // A set that wasn't stored must not look logged — it would silently vanish from
+    // progression.
+    if (!res || !res.ok) {
+      const body = res ? await res.json().catch(() => null) : null;
+      setLogError(body?.error ?? "That set was not saved — try again.");
+      setLogging(false);
+      return;
+    }
     const newSet: WorkoutSet = await res.json();
     setSets((prev) => ({ ...prev, [exerciseId]: [...(prev[exerciseId] ?? []), newSet] }));
-    setRestSeconds(90);
+    setRestSeconds(pe.slot ? restSecondsFor(pe.slot.role) : 90);
     setRestActive(true);
     setRepsInput(String(pe.target_reps_min));
     setLogging(false);
+  }
+
+  // Apply an RIR or form flag to the sets ALREADY logged for this exercise, so the
+  // value that gates next time's progression covers every set — including the first,
+  // which is logged before the selector appears.
+  async function patchLoggedSets(pe: PlannedExercise, update: { rpe?: number | null; form_breakdown?: boolean }) {
+    const exerciseId = swaps[pe.id]?.id ?? pe.exercise_id;
+    const ids = (sets[exerciseId] ?? []).map((s) => s.id);
+    if (ids.length === 0) return;
+    const res = await fetch("/api/sets", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids, ...update }),
+    }).catch(() => null);
+    if (!res || !res.ok) {
+      const body = res ? await res.json().catch(() => null) : null;
+      setLogError(body?.error ?? "Could not update the logged sets.");
+      return;
+    }
+    setSets((prev) => ({
+      ...prev,
+      [exerciseId]: (prev[exerciseId] ?? []).map((s) => ({ ...s, ...update })),
+    }));
+  }
+
+  function chooseRir(pe: PlannedExercise, rir: number | null) {
+    const rpe = rir == null ? null : 10 - rir;
+    setRpeByExercise((prev) => {
+      const next = { ...prev };
+      if (rpe == null) delete next[pe.id];
+      else next[pe.id] = rpe;
+      return next;
+    });
+    patchLoggedSets(pe, { rpe });
+  }
+
+  function toggleFormFlag(pe: PlannedExercise) {
+    const value = !formFlag[pe.id];
+    setFormFlag((prev) => ({ ...prev, [pe.id]: value }));
+    patchLoggedSets(pe, { form_breakdown: value });
   }
 
   // Alternatives come from the same pool the generator uses, so a swap can never pull
@@ -285,9 +385,7 @@ export default function WorkoutPage() {
     setSwapOpen(true);
     setSwapLoading(true);
     try {
-      const res = await fetch(
-        `/api/exercises/alternatives?exercise_id=${currentEx.id}&home=${workout?.is_home_workout ? "true" : "false"}`
-      );
+      const res = await fetch(`/api/exercises/alternatives?exercise_id=${currentEx.id}`);
       setSwapOptions(res.ok ? await res.json() : []);
     } catch {
       setSwapOptions([]);
@@ -343,7 +441,7 @@ export default function WorkoutPage() {
   }
 
   const exercises = workout.planned_exercises ?? [];
-  // On a deload week, every exercise drops a working set.
+  // On a deload week, working sets roughly halve (power included — fewer, fresh reps).
   const effSets = (pe: PlannedExercise) => (deload ? deloadSets(pe.target_sets) : pe.target_sets);
   const currentPE = exercises[currentExIdx];
   // A swap overrides the planned exercise for this session only.
@@ -361,6 +459,15 @@ export default function WorkoutPage() {
   // hide the weight field the moment a swap brought a loaded exercise into a session —
   // and it wrongly treated any 0-increment gym exercise as bodyweight.
   const isBodyweight = !currentEx || !isLoaded(currentEx.equipment) || workout.is_home_workout;
+  const slot = currentPE?.slot ?? null;
+  const isPower = slot?.role === "power" || currentEx?.category === "power";
+  const rir = slot ? targetRir(slot.role, weekInBlock) : null;
+  const programDay = PROGRAM.find((d) => d.day === workout.day_of_week && d.label === workout.label);
+  const repsLabel =
+    slot?.unit === "meters" ? (slot.per_side ? "Meters / side" : "Meters")
+    : currentPE && currentPE.target_reps_min >= 20 && currentPE.progression_increment_kg === 0 && !slot ? "Seconds"
+    : slot?.per_side ? "Reps / side" : "Reps";
+  const selectedRir = currentPE && rpeByExercise[currentPE.id] != null ? 10 - rpeByExercise[currentPE.id] : null;
 
   return (
     // dvh, not vh: on mobile `vh` measures the large viewport, so this box was already
@@ -396,7 +503,7 @@ export default function WorkoutPage() {
       {/* ── Exercise progress dots ── */}
       <div className="flex gap-1 px-4 mb-3 shrink-0">
         {exercises.map((pe, i) => {
-          const done = (sets[pe.exercise_id]?.length ?? 0) >= effSets(pe);
+          const done = (sets[effId(pe)]?.length ?? 0) >= effSets(pe);
           return (
             <button key={pe.id} onClick={() => setCurrentExIdx(i)}
               className="h-1 rounded-full transition-all flex-1"
@@ -409,7 +516,62 @@ export default function WorkoutPage() {
       {deload && (
         <div className="mx-4 mb-3 rounded-xl px-3 py-2 text-xs font-semibold shrink-0 flex items-center gap-2"
           style={{ background: "#f59e0b1a", color: "#b45309" }}>
-          🔄 Deload week — one fewer set, ~10% lighter. Stay well short of failure; this is recovery.
+          🔄 Deload week — about half the sets, ~12.5% lighter, 4+ RIR. Not a test week; no PRs.
+        </div>
+      )}
+
+      {/* Session order: warm-up → power → heavy → accessory → core/carry → Zone 2.
+          The warm-up is a concrete checklist on the first exercise. Ticks are for this
+          screen only — nothing is stored. Collapses once everything is ticked. */}
+      {currentExIdx === 0 && programDay && (
+        <div className="mx-4 mb-3 rounded-xl px-3 py-2 text-xs shrink-0"
+          style={{ background: "var(--surface-2)", color: "var(--muted)" }}>
+          <button onClick={() => setWarmupOpen((v) => !v)} className="w-full flex items-center justify-between">
+            <span className="font-semibold" style={{ color: "var(--foreground)" }}>
+              {warmupTicked.size >= programDay.warmup.length
+                ? "Warm-up done ✓"
+                : `Warm-up · ${warmupTicked.size}/${programDay.warmup.length} · ~8–10 min`}
+            </span>
+            {warmupOpen && warmupTicked.size < programDay.warmup.length
+              ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+          </button>
+          {warmupOpen && warmupTicked.size < programDay.warmup.length && (
+            <ul className="mt-2 space-y-1 max-h-48 overflow-y-auto">
+              {programDay.warmup.map((step, i) => {
+                const ticked = warmupTicked.has(i);
+                return (
+                  <li key={i}>
+                    <button
+                      onClick={() => setWarmupTicked((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(i)) next.delete(i); else next.add(i);
+                        return next;
+                      })}
+                      className="w-full text-left flex items-start gap-2 py-0.5">
+                      <span className="w-4 h-4 mt-px rounded border flex items-center justify-center shrink-0"
+                        style={{ borderColor: ticked ? "var(--accent)" : "var(--border)", color: "var(--accent)" }}>
+                        {ticked && <Check size={11} strokeWidth={3} />}
+                      </span>
+                      <span style={{ textDecoration: ticked ? "line-through" : "none" }}>{step}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+      {programDay && currentExIdx === programDay.rampUp.slot && (
+        <div className="mx-4 mb-3 rounded-xl px-3 py-2 text-xs shrink-0"
+          style={{ background: "var(--surface-2)", color: "var(--muted)" }}>
+          {programDay.rampUp.text}
+        </div>
+      )}
+      {programDay?.zone2After && currentExIdx === exercises.length - 1 && (
+        <div className="mx-4 mb-3 rounded-xl px-3 py-2 text-xs shrink-0"
+          style={{ background: "rgba(96,165,250,0.10)", color: "var(--muted)" }}>
+          <span className="font-semibold" style={{ color: "#60a5fa" }}>After this: Zone 2.</span>{" "}
+          Log it on the running page when you&apos;re done.
         </div>
       )}
 
@@ -512,38 +674,81 @@ export default function WorkoutPage() {
             <div className="px-3 py-2 rounded-xl text-center" style={{ background: color + "18" }}>
               <p className="text-[10px] font-semibold mb-0.5" style={{ color }}>TARGET</p>
               <p className="text-sm font-bold" style={{ color }}>
-                {effSets(currentPE)}×{currentPE.target_reps_min}–{currentPE.target_reps_max}
+                {effSets(currentPE)}×{currentPE.target_reps_min === currentPE.target_reps_max
+                  ? currentPE.target_reps_min
+                  : `${currentPE.target_reps_min}–${currentPE.target_reps_max}`}
+                {slot?.unit === "meters" ? " m" : ""}{slot?.per_side ? " /side" : ""}
               </p>
             </div>
           </div>
 
-          {/* Progression message */}
-          {suggestion?.is_increase && (
-            <div className="shrink-0 px-3 py-2 rounded-xl flex items-center gap-2"
-              style={{ background: color + "18", border: `1px solid ${color}44` }}>
-              <span className="text-base">🎉</span>
-              <p className="text-xs font-semibold" style={{ color }}>{suggestion.message}</p>
+          {/* The prescription in full: effort, rest, and why the exercise is here. */}
+          {slot && (
+            <div className="shrink-0 px-3 py-2 rounded-xl text-xs space-y-0.5"
+              style={{ background: "var(--surface-2)", color: "var(--muted)" }}>
+              <p>
+                <span className="font-semibold" style={{ color: "var(--foreground)" }}>
+                  {isPower ? "Power — max speed, stop when it drops" : rir?.label}
+                </span>
+                {" · "}rest {restLabel(slot.role)}
+                {slot.scheduled_override && !swaps[currentPE.id] && " · this week's scheduled variation"}
+              </p>
+              <p>{slot.purpose}</p>
             </div>
           )}
 
-          {/* Effort rating for this exercise. Appears once the first set is logged —
-              rating an exercise you haven't started yet is guesswork, and it keeps
-              the screen clear while you're setting up. */}
+          {/* Progression message — shown always: a "repeat the load" is as much a
+              decision as an increase, and the reason for it matters. */}
+          {suggestion && (
+            <div className="shrink-0 px-3 py-2 rounded-xl flex items-center gap-2"
+              style={suggestion.is_increase
+                ? { background: color + "18", border: `1px solid ${color}44` }
+                : { background: "var(--surface-2)" }}>
+              {suggestion.is_increase && <span className="text-base">🎉</span>}
+              <p className="text-xs font-semibold" style={{ color: suggestion.is_increase ? color : "var(--muted)" }}>
+                {suggestion.message}
+              </p>
+            </div>
+          )}
+
+          {/* Effort and quality for this exercise. Appear once the first set is logged —
+              rating an exercise you haven't started yet is guesswork. Both are written
+              to every set of the exercise and gate next time's load increase. */}
           {currentPE && currentSets.length > 0 && (
-            <div className="shrink-0">
-              <RpeSelector
-                value={rpeByExercise[currentPE.id] ?? null}
-                onChange={(v) =>
-                  setRpeByExercise((prev) => {
-                    const next = { ...prev };
-                    if (v == null) delete next[currentPE.id];
-                    else next[currentPE.id] = v;
-                    return next;
-                  })
-                }
-                label={`Effort — ${currentEx?.name ?? "this exercise"}`}
-                hint="Applies to every set of this exercise. Tap the number again to clear it."
-              />
+            <div className="shrink-0 rounded-2xl p-3 space-y-2.5" style={{ background: "var(--surface)" }}>
+              {!isPower && (
+                <div>
+                  <p className="text-[10px] font-bold tracking-wider mb-1.5" style={{ color: "var(--muted)" }}>
+                    REPS IN RESERVE ON THE LAST SET{rir ? ` — PLANNED ${rir.label.toUpperCase()}` : ""}
+                  </p>
+                  <div className="grid grid-cols-6 gap-1.5">
+                    {RIR_OPTIONS.map((r) => {
+                      const active = selectedRir === r;
+                      return (
+                        <button key={r}
+                          onClick={() => chooseRir(currentPE, active ? null : r)}
+                          className="h-9 rounded-lg text-sm font-bold"
+                          style={active
+                            ? { background: color, color: "#fff" }
+                            : { background: "var(--surface-2)", color: "var(--muted)" }}>
+                          {r === 5 ? "5+" : r}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+              <button onClick={() => toggleFormFlag(currentPE)}
+                className="w-full text-left px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-2"
+                style={formFlag[currentPE.id]
+                  ? { background: "#ef444422", color: "#ef4444" }
+                  : { background: "var(--surface-2)", color: "var(--muted)" }}>
+                <span className="w-4 h-4 rounded border flex items-center justify-center shrink-0"
+                  style={{ borderColor: formFlag[currentPE.id] ? "#ef4444" : "var(--border)" }}>
+                  {formFlag[currentPE.id] && <Check size={11} strokeWidth={3} />}
+                </span>
+                {isPower ? "Speed or height dropped" : "Form broke down"} — hold the load next time
+              </button>
             </div>
           )}
 
@@ -588,13 +793,19 @@ export default function WorkoutPage() {
                   />
                 )}
                 <BigStepper
-                  label={currentPE.target_reps_min >= 20 && currentPE.progression_increment_kg === 0 ? "Seconds" : "Reps"}
+                  label={repsLabel}
                   value={repsInput}
                   onChange={setRepsInput}
                   step={1}
                   color={color}
                 />
               </div>
+
+              {logError && (
+                <p className="text-xs rounded-lg px-3 py-2" style={{ background: "#ef44441a", color: "#ef4444" }}>
+                  {logError}
+                </p>
+              )}
 
               <button
                 onClick={logSet}

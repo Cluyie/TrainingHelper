@@ -154,3 +154,52 @@ describe("bodyweight progression", () => {
     expect(s.message).toContain("control");
   });
 });
+
+describe("quality-based progression", () => {
+  const withRir = (list: WorkoutSet[], rir: number) => list.map((s) => ({ ...s, rpe: 10 - rir }));
+
+  it("increases when the top of the range was hit at the planned reserve", () => {
+    const s = getProgressionSuggestion(planned(), withRir(sets([12, 12, 12], 40), 3), null, { rirMin: 3 });
+    expect(s.is_increase).toBe(true);
+    expect(s.suggested_weight_kg).toBe(42.5);
+  });
+
+  it("holds the load when the reps came with less reserve than planned", () => {
+    const s = getProgressionSuggestion(planned(), withRir(sets([12, 12, 12], 40), 1), null, { rirMin: 3 });
+    expect(s.is_increase).toBe(false);
+    expect(s.suggested_weight_kg).toBe(40);
+    expect(s.message).toMatch(/RIR/);
+  });
+
+  it("holds the load when form was flagged", () => {
+    const flagged = sets([12, 12, 12], 40).map((x, i) => ({ ...x, form_breakdown: i === 2 }));
+    const s = getProgressionSuggestion(planned(), flagged, null, { rirMin: 2 });
+    expect(s.is_increase).toBe(false);
+    expect(s.suggested_weight_kg).toBe(40);
+  });
+
+  it("does not block on an unrecorded RIR", () => {
+    const s = getProgressionSuggestion(planned(), sets([12, 12, 12], 40), null, { rirMin: 3 });
+    expect(s.is_increase).toBe(true);
+  });
+
+  it("never progresses power by load", () => {
+    const pe = planned({ target_reps_min: 4, target_reps_max: 4, progression_increment_kg: 0 });
+    const s = getProgressionSuggestion(pe, sets([4, 4, 4], 3), null, { isPower: true });
+    expect(s.is_increase).toBe(false);
+    expect(s.suggested_weight_kg).toBe(3);
+  });
+
+  it("treats another weekday's history as a reference, not a decision", () => {
+    const s = getProgressionSuggestion(planned(), sets([12, 12, 12], 40), null, { fromOtherDay: true });
+    expect(s.is_increase).toBe(false);
+    expect(s.message).toMatch(/another day/);
+  });
+
+  it("points bodyweight pull-ups at the next rung once they top out", () => {
+    const pe = planned({ target_reps_min: 6, target_reps_max: 10, progression_increment_kg: 0 });
+    const s = getProgressionSuggestion(pe, sets([10, 10, 10]), "Weighted Pull-Up", { rirMin: 2 });
+    expect(s.is_increase).toBe(true);
+    expect(s.message).toContain("Weighted Pull-Up");
+  });
+});

@@ -30,6 +30,10 @@ export default function NutritionPage() {
   const [activity, setActivity] = useState<ActivityAdjustment | null>(null);
   const [loading, setLoading] = useState(true);
   const [tier2Open, setTier2Open] = useState(false);
+  // "Didn't track properly" marks — this day's, and the week window's.
+  const [dayFlag, setDayFlag] = useState<DayFlag | null>(null);
+  const [weekFlags, setWeekFlags] = useState<DayFlag[]>([]);
+  const [flagsVersion, setFlagsVersion] = useState(0);
 
   // static data (supplements)
   useEffect(() => {
@@ -67,6 +71,22 @@ export default function NutritionPage() {
       .then((r) => r.json())
       .then((d) => setWeekEntries(Array.isArray(d) ? d : []));
   }, [view, date]);
+
+  // day marks: this day, and the 7-day window the week view covers
+  useEffect(() => {
+    const start = shiftDate(date, -6);
+    fetch(`/api/nutrition/day-flags?start=${start}&end=${date}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d: DayFlag[]) => {
+        const list = Array.isArray(d) ? d : [];
+        setWeekFlags(list);
+        setDayFlag(list.find((f) => f.date === date) ?? null);
+      })
+      .catch(() => {
+        setWeekFlags([]);
+        setDayFlag(null);
+      });
+  }, [date, flagsVersion]);
 
   const food = foodTotals(entries);
   const suppMap = supplementTotals(supps);
@@ -148,6 +168,14 @@ export default function NutritionPage() {
         </button>
       </div>
 
+      {view === "day" && (
+        <DayMark
+          date={date}
+          flag={dayFlag}
+          onChanged={() => setFlagsVersion((v) => v + 1)}
+        />
+      )}
+
       {view === "day" ? (
         <DayView
           loading={loading}
@@ -167,8 +195,121 @@ export default function NutritionPage() {
       ) : (
         // Flat targets are fine here: the activity adjustment is zero-mean over
         // its window, so weekly averages/daysBelow stats stay unbiased.
-        <WeekView stats={weeklyStats(weekEntries, supps, targets)} />
+        <>
+          {weekFlags.length > 0 && (
+            <p className="text-xs rounded-xl px-3 py-2" style={{ background: "var(--surface)", color: "var(--muted)" }}>
+              {weekFlags.length} day{weekFlags.length === 1 ? "" : "s"} marked as not tracked properly —
+              left out of these averages.
+            </p>
+          )}
+          <WeekView stats={weeklyStats(weekEntries, supps, targets, new Set(weekFlags.map((f) => f.date)))} />
+        </>
       )}
+    </div>
+  );
+}
+
+// ---------------- "Didn't track properly" mark ----------------
+
+interface DayFlag {
+  date: string;
+  estimated_kcal: number | null;
+}
+
+// A day eaten out and only partly logged. Marking it keeps it from pulling the
+// calorie estimate and the weekly averages down; an optional rough estimate lets the
+// day still count for calories.
+function DayMark({ date, flag, onChanged }: { date: string; flag: DayFlag | null; onChanged: () => void }) {
+  const [estimate, setEstimate] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Show the stored estimate when the day (or its mark) changes. This mirrors
+  // server data into an editable field, not browser storage.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setEstimate(flag?.estimated_kcal != null ? String(flag.estimated_kcal) : "");
+    setError(null);
+  }, [flag, date]);
+
+  async function send(method: "PUT" | "DELETE", body?: object) {
+    setSaving(true);
+    setError(null);
+    const res = await fetch(
+      method === "DELETE" ? `/api/nutrition/day-flags?date=${date}` : "/api/nutrition/day-flags",
+      {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : undefined,
+      }
+    ).catch(() => null);
+    setSaving(false);
+    if (!res || !res.ok) {
+      const b = res ? await res.json().catch(() => null) : null;
+      setError(b?.error ?? "Not saved — try again.");
+      return;
+    }
+    onChanged();
+  }
+
+  const estimateValue = estimate.trim() === "" ? null : Number(estimate);
+  const estimateValid = estimateValue == null || (Number.isInteger(estimateValue) && estimateValue >= 0);
+
+  if (!flag) {
+    return (
+      <div className="space-y-1">
+        <button
+          onClick={() => send("PUT", { date })}
+          disabled={saving}
+          className="w-full text-left px-3 py-2 rounded-xl text-xs flex items-center gap-2 disabled:opacity-50"
+          style={{ background: "var(--surface)", color: "var(--muted)" }}
+        >
+          <AlertTriangle size={13} className="shrink-0" />
+          Ate out or couldn&apos;t log properly? Mark this day as not tracked.
+        </button>
+        {error && <p className="text-xs px-1" style={{ color: "#ef4444" }}>{error}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl p-3 space-y-2" style={{ background: "#f59e0b14", border: "1px solid #f59e0b44" }}>
+      <p className="text-xs font-semibold" style={{ color: "#b45309" }}>
+        Marked: not tracked properly
+      </p>
+      <p className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
+        {flag.estimated_kcal != null
+          ? `Counts as ~${flag.estimated_kcal} kcal for your calorie estimate. Left out of weekly nutrient averages.`
+          : "Left out of your calorie estimate and weekly averages. Your weigh-in still counts. Add a rough estimate to let the day count for calories."}
+      </p>
+      <div className="flex gap-2">
+        <input
+          type="number"
+          inputMode="numeric"
+          value={estimate}
+          onChange={(e) => setEstimate(e.target.value)}
+          placeholder="Rough estimate, kcal (optional)"
+          className="flex-1 min-w-0 h-10 px-3 rounded-lg outline-none text-sm"
+          style={{ background: "var(--surface-2)", color: "var(--foreground)", border: "1px solid var(--border)" }}
+        />
+        <button
+          onClick={() => send("PUT", { date, estimated_kcal: estimateValue })}
+          disabled={saving || !estimateValid || estimateValue === flag.estimated_kcal}
+          className="px-3 h-10 rounded-lg text-xs font-semibold disabled:opacity-40"
+          style={{ background: "var(--accent)", color: "#fff" }}
+        >
+          Save
+        </button>
+        <button
+          onClick={() => send("DELETE")}
+          disabled={saving}
+          className="px-3 h-10 rounded-lg text-xs font-semibold disabled:opacity-40"
+          style={{ background: "var(--surface-2)", color: "var(--muted)" }}
+        >
+          Unmark
+        </button>
+      </div>
+      {error && <p className="text-xs" style={{ color: "#ef4444" }}>{error}</p>}
     </div>
   );
 }

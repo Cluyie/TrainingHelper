@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    await regenerateProgram(settings, auth.userId);
+    await regenerateProgram(auth.userId);
   } catch (e) {
     const message = e instanceof Error ? e.message : "program regeneration failed";
     return NextResponse.json({ error: message }, { status: 500 });

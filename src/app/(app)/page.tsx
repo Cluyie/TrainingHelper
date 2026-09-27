@@ -3,8 +3,9 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Dumbbell, Wind, PersonStanding, ChevronRight, Flame, Calendar, Settings, AlertTriangle, Utensils, Scale, TrendingDown, TrendingUp, Check, Footprints } from "lucide-react";
-import type { PlannedWorkout, RunningSession, NutrientTarget, BodyWeight, WorkoutSession } from "@/types";
+import { Dumbbell, Wind, PersonStanding, ChevronRight, Flame, Calendar, Settings, Utensils, Scale, TrendingDown, TrendingUp, Check, Footprints } from "lucide-react";
+import type { PlannedWorkout, NutrientTarget, BodyWeight, WorkoutSession } from "@/types";
+import { HARD_RUN_DAY, PROGRAM, isHeavyLowerDay } from "@/lib/program-generator";
 import { foodTotals, supplementTotals, targetMap, todayISO, toISODate, shiftDate } from "@/lib/nutrition-client";
 import { weightTrend } from "@/lib/targets";
 import { NUTRIENT_MAP } from "@/lib/nutrients";
@@ -22,10 +23,8 @@ export default function Dashboard() {
   const router = useRouter();
   const [workouts, setWorkouts] = useState<PlannedWorkout[]>([]);
   const [sessions, setSessions] = useState<WorkoutSession[]>([]);
-  const [nextRun, setNextRun] = useState<RunningSession | null>(null);
-  const [runIsToday, setRunIsToday] = useState(false);
-  const [vo2ThisWeek, setVo2ThisWeek] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [isDeload, setIsDeload] = useState(false);
 
   // Today's nutrition (own effect so a missing FDC_API_KEY never blocks the dashboard)
   const [nutFood, setNutFood] = useState<NutrientSnapshot>({});
@@ -38,13 +37,10 @@ export default function Dashboard() {
     Promise.all([
       fetch("/api/settings").then((r) => r.json()),
       fetch("/api/workouts").then((r) => r.json()),
-      fetch("/api/running").then((r) => r.json()),
       fetch("/api/sessions?limit=20").then((r) => r.json()).catch(() => []),
-      // Which block-week we're in. The dashboard has to scope the next run to it:
-      // program_week is 1..6 and repeats, so an unrun leftover from an earlier block
-      // would otherwise resurface here as the next thing to do.
-      fetch("/api/running/week").then((r) => r.json()).catch(() => null),
-    ]).then(([s, w, runs, sess, blockState]) => {
+      fetch("/api/strength/cycle").then((r) => (r.ok ? r.json() : null)).catch(() => null),
+    ]).then(([s, w, sess, cycle]) => {
+      setIsDeload(!!cycle?.isDeload);
       setSessions(Array.isArray(sess) ? sess : []);
       // First-time / incomplete profile → finish onboarding before using the app.
       const profileComplete =
@@ -53,37 +49,7 @@ export default function Dashboard() {
         router.push("/settings");
         return;
       }
-      setWorkouts(w ?? []);
-      // Surface the next required run — optional unstructured sessions carry no
-      // pressure and shouldn't nag from the dashboard.
-      //
-      // Ordered by DAY, counting forward from today. The API returns runs in
-      // session order, so taking the first one showed whichever run happened to be
-      // session 1 — Saturday's long run could outrank today's easy one.
-      // /api/running answers with { error } on a failed rebuild, not an array.
-      const allRuns: RunningSession[] = Array.isArray(runs) ? runs : [];
-      const todayIdx = new Date().getDay();
-      const todayName = TODAY_KEYS[todayIdx];
-      const fromToday = (day: string) =>
-        (TODAY_KEYS.indexOf(day) - TODAY_KEYS.indexOf(todayName) + 7) % 7;
-
-      const blockIndex = blockState?.blockIndex ?? 0;
-      const weekInBlock = blockState?.weekInBlock ?? 1;
-      const runArr = allRuns.filter(
-        (r) => r.block_index === blockIndex && r.program_week === weekInBlock
-      );
-
-      const incomplete = runArr
-        .filter((r) => !r.completed && !r.optional && r.day_of_week)
-        .sort((a, b) => fromToday(a.day_of_week!) - fromToday(b.day_of_week!));
-
-      const next = incomplete[0] ?? null;
-      setNextRun(next);
-      setRunIsToday(!!next?.day_of_week && fromToday(next.day_of_week) === 0);
-      // Flag if the current running week contains a VO2 (interval) session. Still
-      // gated on there being a run left to do — the note is guidance for the week
-      // ahead, not something to keep showing once everything is logged.
-      setVo2ThisWeek(next != null && runArr.some((r) => r.type === "interval"));
+      setWorkouts(Array.isArray(w) ? w : []);
       setLoading(false);
     });
   }, [router]);
@@ -166,12 +132,28 @@ export default function Dashboard() {
         ) : (
           <TodayCard
             title={`Today: ${todayWorkout.label}`}
-            subtitle={`${todayWorkout.planned_exercises?.length ?? 0} exercises`}
+            subtitle={`${todayWorkout.planned_exercises?.length ?? 0} exercises${
+              PROGRAM.find((d) => d.day === todayKey)?.zone2After ? " · then Zone 2" : ""
+            }`}
             icon={<Dumbbell size={20} style={{ color: "var(--accent)" }} />}
             href={`/strength/workout/${todayWorkout.id}`}
             accent
           />
         )
+      ) : todayKey === HARD_RUN_DAY ? (
+        // Monday's hard run is the week's fixed frame, not a planned session — this just
+        // points at the log. In the strength deload week the run is eased too, so the
+        // whole body deloads together.
+        <TodayCard
+          title={isDeload ? "Hard run day — deload week" : "Hard run day"}
+          subtitle={
+            isDeload
+              ? "Deload week: keep today's run slow and easy. Log it afterwards."
+              : "No strength today. Log the run afterwards."
+          }
+          icon={<Wind size={20} style={{ color: "#60a5fa" }} />}
+          href="/running/log"
+        />
       ) : (
         <div
           className="rounded-2xl p-4"
@@ -183,37 +165,6 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* Next run. Now that strength and running are one plan, a run scheduled for
-          today should read as today's training, not as something upcoming. */}
-      {nextRun && (
-        <TodayCard
-          title={
-            runIsToday
-              ? "Today's Run"
-              : nextRun.day_of_week
-              ? `Next Run: ${DAY_NAMES[nextRun.day_of_week]}`
-              : "Next Run"
-          }
-          subtitle={nextRun.target_description.slice(0, 60) + "…"}
-          icon={<Wind size={20} style={{ color: "#60a5fa" }} />}
-          href="/running"
-        />
-      )}
-
-      {/* VO2 heads-up. The planner already places intervals clear of heavy legs, so this
-          says what the day is for rather than offering scheduling advice to act on. */}
-      {vo2ThisWeek && (
-        <div className="rounded-2xl p-3 flex gap-2"
-          style={{ background: "rgba(245,158,11,0.10)", border: "1px solid rgba(245,158,11,0.30)" }}>
-          <AlertTriangle size={15} className="mt-0.5 shrink-0" style={{ color: "#f59e0b" }} />
-          <p className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
-            <span className="font-semibold" style={{ color: "#f59e0b" }}>This week has a VO₂ max run.</span>{" "}
-            It&apos;s already scheduled clear of your heavy lower-body day. Hard means 90-95% HR —
-            controlled and repeatable, never a sprint.
-          </p>
-        </div>
-      )}
-
       {/* Today's nutrition */}
       <NutritionCard
         food={nutFood}
@@ -221,7 +172,7 @@ export default function Dashboard() {
         targets={nutTargets}
         hasEntries={nutHasEntries}
         trainingDay={!!todayWorkout}
-        heavyLegs={todayWorkout?.label?.includes("Squat") ?? false}
+        heavyLegs={!!todayWorkout && isHeavyLowerDay(todayWorkout.day_of_week)}
       />
 
       {/* Morning weigh-in + today's steps */}

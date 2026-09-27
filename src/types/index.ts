@@ -103,6 +103,20 @@ export interface PlannedExercise {
   target_reps_max: number;
   progression_increment_kg: number;
   exercise?: Exercise;
+  // Attached by GET /api/workouts from the program definition — not stored. Null when
+  // the stored row doesn't match the current program (regenerate to fix).
+  slot?: PlannedSlotInfo | null;
+}
+
+export interface PlannedSlotInfo {
+  role: "power" | "heavy" | "compound" | "accessory" | "core" | "carry";
+  unit: "reps" | "meters";
+  per_side: boolean;
+  purpose: string;
+  // Vertical-pull ladder: the rung to move to once this one tops out.
+  next_rung: string | null;
+  // True when the rotation or ladder replaced the stored exercise this week.
+  scheduled_override: boolean;
 }
 
 export interface WorkoutSession {
@@ -123,6 +137,8 @@ export interface WorkoutSet {
   weight_kg: number;
   reps: number;
   rpe: number | null;
+  // Technique or (for power) speed broke down. Blocks a load increase next time.
+  form_breakdown?: boolean;
   completed_at: string;
   exercise?: Exercise;
 }

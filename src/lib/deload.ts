@@ -113,13 +113,20 @@ export function manualDeloadStart(today = new Date()): string {
   return toDateOnly(start);
 }
 
-// Deload adjustments: fewer working sets and ~10% lighter loads, never to failure.
+// Deload adjustments (week 6): a real deload, not a test week.
+//
+// Working sets roughly halve — 3 → 2, 2 → 1 — which takes about 40-45 % of the
+// week's sets out. Power keeps its movements with the same reduction.
 export function deloadSets(sets: number): number {
-  return Math.max(2, sets - 1);
+  return Math.max(1, Math.ceil(sets / 2));
 }
+
+// ~12.5 % lighter — inside the 10-15 % range — rounded to the exercise's increment.
+// Not applied to power work: a medicine ball or a jump has no load to take off.
+export const DELOAD_LOAD_FACTOR = 0.875;
 
 export function deloadWeight(kg: number, increment = 2.5): number {
   if (!kg) return kg;
   const step = increment || 2.5;
-  return Math.max(0, Math.round((kg * 0.9) / step) * step);
+  return Math.max(0, Math.round((kg * DELOAD_LOAD_FACTOR) / step) * step);
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { adaptiveTDEE, KCAL_PER_KG, type WeightPoint, type IntakePoint } from "@/lib/targets";
+import { adaptiveTDEE, applyDayFlags, KCAL_PER_KG, type WeightPoint, type IntakePoint } from "@/lib/targets";
 
 // Maintenance is re-derived from scratch on every page load, so its stability
 // IS the product: a target that jumps hundreds of kcal between two days with the
@@ -87,5 +87,32 @@ describe("adaptive maintenance", () => {
   it("clamps to ±25 % of the formula", () => {
     const tdee = adaptiveTDEE(weights(28, (i) => 90 - 0.3 * i), intake(28, () => 2600), FORMULA);
     expect(tdee).toBe(FORMULA * 1.25);
+  });
+});
+
+describe("'didn't track properly' day marks", () => {
+  const intake: IntakePoint[] = [
+    { date: "2026-08-01", kcal: 2800 },
+    { date: "2026-08-02", kcal: 1200 }, // restaurant day, half logged
+    { date: "2026-08-03", kcal: 2750 },
+  ];
+
+  it("drops a marked day that has no estimate", () => {
+    const out = applyDayFlags(intake, [{ date: "2026-08-02", estimated_kcal: null }]);
+    expect(out.map((p) => p.date)).toEqual(["2026-08-01", "2026-08-03"]);
+  });
+
+  it("uses the estimate instead of the logged total when there is one", () => {
+    const out = applyDayFlags(intake, [{ date: "2026-08-02", estimated_kcal: 3400 }]);
+    expect(out.find((p) => p.date === "2026-08-02")?.kcal).toBe(3400);
+  });
+
+  it("counts a marked day with nothing logged if it has an estimate", () => {
+    const out = applyDayFlags(intake, [{ date: "2026-08-04", estimated_kcal: 3000 }]);
+    expect(out.map((p) => p.date)).toEqual(["2026-08-01", "2026-08-02", "2026-08-03", "2026-08-04"]);
+  });
+
+  it("leaves intake untouched with no marks", () => {
+    expect(applyDayFlags(intake, [])).toEqual(intake);
   });
 });

@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Settings, LogOut, Dumbbell, Home, Info } from "lucide-react";
+import { Settings, LogOut, Dumbbell, Info } from "lucide-react";
 import type { UserSettings, DayOfWeek } from "@/types";
+import { PROGRAM, WEEK_FRAME } from "@/lib/program-generator";
 
 const DAYS: { key: DayOfWeek; short: string }[] = [
   { key: "monday", short: "Mon" },
@@ -19,6 +20,7 @@ export default function SettingsPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [settings, setSettings] = useState<Partial<UserSettings>>({
     equipment: ["gym"],
     current_phase: 1,
@@ -36,35 +38,31 @@ export default function SettingsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  function toggleNoGym(day: DayOfWeek) {
-    setSettings((s) => {
-      const current = s.no_gym_days ?? [];
-      const next = current.includes(day)
-        ? current.filter((d) => d !== day)
-        : [...current, day];
-      return { ...s, no_gym_days: next };
-    });
-  }
-
   const profileComplete =
     !!settings.sex && !!settings.birth_year && !!settings.height_cm &&
     !!settings.activity_level && !!settings.goal;
-
-  // Three gym sessions need three reachable weekdays. Below that the planner drops to
-  // two rather than stacking them — worth warning about, but not worth blocking on.
-  const gymDaysFeasible = 7 - (settings.no_gym_days ?? []).length >= 3;
 
   async function handleSave() {
     if (!profileComplete) return;
 
     setSaving(true);
+    setSaveError(null);
     try {
-      await fetch("/api/settings", {
+      const res = await fetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(settings),
       });
+      // Program generation can fail (e.g. the catalogue is missing an exercise). Say so
+      // instead of navigating away as if it worked.
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        setSaveError(body?.error ?? "Saving failed — your program was not regenerated.");
+        return;
+      }
       router.push("/");
+    } catch {
+      setSaveError("Saving failed — check your connection.");
     } finally {
       setSaving(false);
     }
@@ -93,78 +91,30 @@ export default function SettingsPage() {
         <h1 className="text-xl font-bold">Settings</h1>
       </div>
 
-      {/* Gym availability — the ONLY placement input left. The planner owns every
-          other scheduling decision, because strength and running share one recovery
-          budget and can only be balanced when one thing places them both. */}
-      <Section title="Gym Availability">
-        <div className="flex items-start gap-2 mb-4">
+      {/* The week is fixed by the program — nothing to place, so this only shows it. */}
+      <Section title="Your Week">
+        <div className="space-y-1.5">
+          {DAYS.map(({ key, short }) => {
+            const session = PROGRAM.find((d) => d.day === key);
+            return (
+              <div key={key} className="flex items-start gap-3 px-3 py-2 rounded-xl text-xs"
+                style={{ background: "var(--surface-2)" }}>
+                <span className="w-8 shrink-0 font-bold">{short}</span>
+                <span className="flex items-center gap-1.5" style={{ color: "var(--muted)" }}>
+                  {session && <Dumbbell size={12} className="shrink-0" style={{ color: "var(--accent)" }} />}
+                  {session ? `${session.label}${session.zone2After ? " · then Zone 2" : ""}` : WEEK_FRAME[key]}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        <div className="flex items-start gap-2 mt-3">
           <Info size={13} className="mt-0.5 shrink-0" style={{ color: "var(--muted)" }} />
           <p className="text-xs leading-relaxed" style={{ color: "var(--muted)" }}>
-            Tap any day you <span className="font-semibold">can&apos;t get to the gym</span>.
-            Home sessions and runs can still be scheduled on those days — only the three
-            gym days are kept away.
+            6-week blocks: weeks 1–5 progress, week 6 is a deload. Saturday is the lowest-fatigue
+            day, ahead of Sunday&apos;s rest and Monday&apos;s hard run. Runs are logged, not planned.
           </p>
         </div>
-
-        <div className="grid grid-cols-7 gap-1.5 mb-3">
-          {DAYS.map(({ key, short }) => {
-            const blocked = (settings.no_gym_days ?? []).includes(key);
-            return (
-              <button key={key} onClick={() => toggleNoGym(key)}
-                className="h-14 rounded-xl text-xs font-bold flex flex-col items-center justify-center gap-1 transition-all active:scale-95"
-                style={{
-                  background: blocked ? "var(--surface-2)" : "var(--accent)",
-                  color: blocked ? "var(--muted)" : "#fff",
-                  border: `1px solid ${blocked ? "var(--border)" : "var(--accent)"}`,
-                }}
-              >
-                {blocked ? <Home size={12} /> : <Dumbbell size={12} />}
-                {short}
-              </button>
-            );
-          })}
-        </div>
-
-        {!gymDaysFeasible && (
-          <div className="flex items-start gap-2 px-3 py-2 rounded-xl text-xs"
-            style={{ background: "#f59e0b1a", color: "#b45309" }}>
-            <Info size={13} className="mt-0.5 shrink-0" />
-            <span>
-              Fewer than three days left for the gym. The planner will drop to two gym
-              sessions rather than cram them together.
-            </span>
-          </div>
-        )}
-
-        <div className="mt-3 px-3 py-2 rounded-xl text-xs" style={{ background: "var(--surface-2)", color: "var(--muted)" }}>
-          <span className="font-semibold">Your week: </span>
-          three gym days (Hinge/Pull · Squat/Push · Glute/Pull/Carry), two home days
-          (bodyweight, table and ab wheel), the week&apos;s runs, and one full rest day.
-          Hard running is kept clear of heavy legs automatically.
-        </div>
-      </Section>
-
-      {/* Training Phase */}
-      <Section title="Training Phase">
-        <div className="flex gap-2 mb-2">
-          {[1, 2, 3].map((phase) => {
-            const active = settings.current_phase === phase;
-            return (
-              <button key={phase} onClick={() => setSettings((p) => ({ ...p, current_phase: phase as 1 | 2 | 3 }))}
-                className="flex-1 h-11 rounded-xl text-sm font-semibold transition-all"
-                style={{ background: active ? "var(--accent)" : "var(--surface-2)", color: active ? "#fff" : "var(--muted)" }}>
-                Phase {phase}
-              </button>
-            );
-          })}
-        </div>
-        <p className="text-xs" style={{ color: "var(--muted)" }}>
-          {[
-            "Conservative — shoulder and back safe. Perfect for returning athletes.",
-            "Moderate loading — more variety, some overhead work unlocked.",
-            "Full compound work — barbell training, heavier loading.",
-          ][(settings.current_phase ?? 1) - 1]}
-        </p>
       </Section>
 
       {/* Stretching */}
@@ -273,6 +223,12 @@ export default function SettingsPage() {
           </div>
         </div>
       </Section>
+
+      {saveError && (
+        <p className="text-sm rounded-xl px-3 py-2" style={{ background: "#ef44441a", color: "#ef4444" }}>
+          {saveError}
+        </p>
+      )}
 
       <button onClick={handleSave} disabled={saving || !canSave}
         className="w-full h-14 rounded-2xl text-base font-bold transition-all active:scale-95 disabled:opacity-40"

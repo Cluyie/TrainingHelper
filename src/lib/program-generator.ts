@@ -1,342 +1,473 @@
-import type { Exercise, ExerciseCategory } from "@/types";
-import { isLoaded } from "@/lib/training-load";
+// ============================================================
+// The strength program.
+//
+// A FIXED, deterministic Tuesday-Saturday week. There is no placement search and no
+// exercise picking: every day, exercise, set count, rep range and increment is
+// written down below, and the only things that vary are the ones the program itself
+// defines —
+//
+//   • the week of the 6-week block (RIR target, and the week-6 deload),
+//   • the 3-week medicine-ball rotation on Tuesday/Thursday,
+//   • the vertical-pull ladder (lat pulldown → pull-up → weighted pull-up), which
+//     follows what you actually logged last rather than a stored flag.
+//
+// There are no phases: one program, progressed by double progression and deloads.
+//
+// The running week is the fixed frame around it, and running is NOT strength volume:
+//
+//   Mon  hard run — no strength
+//   Tue  upper strength          (legs recover from Monday's run)
+//   Wed  heavy lower             (~48 h after the hard run)
+//   Thu  upper hypertrophy, then Zone 2
+//   Fri  posterior chain         (two days after Wednesday's legs)
+//   Sat  lowest-fatigue session, then Zone 2 — ahead of Sunday's rest and Monday's run
+//   Sun  full rest
+//
+// Kit: Smith machine, dual cable (2 × 60 kg stacks), Olympic barbell + plates, trap
+// bar (with a single-handle suitcase setup), adjustable bench, pull-up station, dip
+// handles, safety bars, landmine, one medicine ball. No dumbbells, no kettlebell.
+//
+// Shoulders come first: where a shoulder-friendlier exercise gives the same training
+// effect it is the primary — hence landmine pressing as the vertical press, and
+// direct rotator-cuff work next to the face pulls.
+//
+// Every exercise has a job; see `purpose` on each slot. Nothing is here to fill a
+// list — the function checklist in program-generator.test.ts is what guards that.
+// ============================================================
 
-export interface WorkoutTemplate {
+import type { DayOfWeek, Exercise } from "@/types";
+import { BLOCK_WEEKS, deloadSets } from "@/lib/deload";
+
+/**
+ * How a slot is trained — this sets its rest, its RIR target and how it progresses.
+ *
+ *   power     jumps and throws. Always fresh, never to fatigue, no RIR; progress by
+ *             quality, height/distance and speed, never by piling on load.
+ *   heavy     the main compound lifts. Controlled reserve always, no grinders.
+ *   compound  hypertrophy-oriented compound work.
+ *   accessory isolation work.
+ *   core      loaded trunk work.
+ *   carry     loaded carries, progressed by distance and then load.
+ */
+export type SlotRole = "power" | "heavy" | "compound" | "accessory" | "core" | "carry";
+export type SlotUnit = "reps" | "meters";
+
+export interface LadderRung {
+  exercise: string;
+  incrementKg: number;
+}
+
+export interface ProgramSlot {
+  exercise: string; // catalogue name — the default when nothing below overrides it
+  sets: number;
+  repsMin: number;
+  repsMax: number;
+  incrementKg: number;
+  role: SlotRole;
+  unit: SlotUnit;
+  perSide: boolean;
+  purpose: string;
+  /** Vertical pull only. Ordered easiest → hardest. */
+  ladder?: LadderRung[];
+  /** Medicine-ball slots only: which exercise each week of the 3-week rotation uses. */
+  rotation?: [string, string, string];
+}
+
+export interface ProgramDay {
+  day: DayOfWeek;
   label: string;
   focus: string;
-  kind: "gym" | "home";
-  slots: ExerciseSlot[];
+  zone2After: boolean;
+  /** Done before slot 1, as a checklist. */
+  warmup: string[];
+  /** Ramp-up sets before the first loaded working exercise (not logged). */
+  rampUp: { slot: number; text: string };
+  slots: ProgramSlot[];
 }
 
-interface PhaseUpgrade {
-  name: string;
-  phase: number;
+// ── Slot helpers ─────────────────────────────────────────────────────────────
+
+interface SlotOpts {
+  unit?: SlotUnit;
+  perSide?: boolean;
+  ladder?: LadderRung[];
+  rotation?: [string, string, string];
 }
 
-interface ExerciseSlot {
-  category: ExerciseCategory;
-  target_sets: number;
-  target_reps_min: number;
-  target_reps_max: number;
-  progression_increment_kg: number;
-  isVerticalPull?: boolean;
-  isVerticalPush?: boolean;
-  preferredExercise?: string;
-  // Harder variants swapped in automatically once the user's phase unlocks them.
-  phaseUpgrades?: PhaseUpgrade[];
-}
-
-function slot(
-  category: ExerciseCategory,
+function s(
+  exercise: string,
   sets: number,
   repsMin: number,
   repsMax: number,
-  increment: number,
-  opts?: {
-    isVerticalPull?: boolean;
-    isVerticalPush?: boolean;
-    preferredExercise?: string;
-    phaseUpgrades?: PhaseUpgrade[];
-  }
-): ExerciseSlot {
+  incrementKg: number,
+  role: SlotRole,
+  purpose: string,
+  opts: SlotOpts = {}
+): ProgramSlot {
   return {
-    category,
-    target_sets: sets,
-    target_reps_min: repsMin,
-    target_reps_max: repsMax,
-    progression_increment_kg: increment,
-    ...opts,
+    exercise,
+    sets,
+    repsMin,
+    repsMax,
+    incrementKg,
+    role,
+    unit: opts.unit ?? "reps",
+    perSide: opts.perSide ?? false,
+    purpose,
+    ladder: opts.ladder,
+    rotation: opts.rotation,
   };
 }
 
-// ─────────────────────────────────────────────────────────
-// THE WEEK
-//
-// Five sessions: three gym, two home. Roughly 81 working sets a week, down from 112 —
-// the cut came almost entirely out of redundant core and accessory volume, not out of
-// movement patterns. All thirteen patterns are still covered: squat, hinge, horizontal
-// and vertical push, horizontal and vertical pull, unilateral lower, carry,
-// anti-extension core, anti-rotation core, power, calf/ankle and scapular health.
-//
-// Two rules shape which exercise lands where:
-//
-//   HOME FIRST — anything doable with a table, an ab wheel and bodyweight does not
-//   occupy a gym slot. There is no reason to travel to a gym to do push-ups or planks.
-//   Gym slots go where equipment genuinely buys something.
-//
-//   CABLE PREFERENCE — when two options are otherwise equivalent, the cable wins.
-//   It does not override free weights where those are clearly better: the heavy
-//   anchor, the RDL, carries and power work all stay free-weight. Research doesn't
-//   show a universal hypertrophy edge either way, so this is a practical preference
-//   rather than a claim that cables are superior.
-//
-// Power leads every session, always fresh, 2 sets, never to failure. It's low-fatigue
-// neural work that preserves the fast-twitch capacity which fades earliest with age —
-// not added volume. Each gym day uses a different power movement so nothing is
-// repeated across the week.
-// ─────────────────────────────────────────────────────────
-
-// Gym A — hinge and pull. The RDL is the cornerstone posterior-chain lift and loads
-// the hamstrings with no spinal compression. Two pulls against one press counterbalance
-// a life spent facing forward. The week's only vertical press sits here, which keeps
-// per-session shoulder load low. Face pulls every gym session, without exception.
-const GYM_A_SLOTS: ExerciseSlot[] = [
-  slot("power", 2, 10, 12, 4.0, { preferredExercise: "Kettlebell Swing" }),
-  slot("hinge", 3, 6, 10, 5.0, {
-    preferredExercise: "Dumbbell Romanian Deadlift",
-    phaseUpgrades: [{ name: "Barbell Romanian Deadlift", phase: 2 }],
-  }),
-  slot("pull", 3, 8, 12, 2.5, {
-    isVerticalPull: true,
-    preferredExercise: "Lat Pulldown",
-    phaseUpgrades: [
-      { name: "Weighted Pull-Up", phase: 3 },
-      { name: "Pull-Up", phase: 2 },
-    ],
-  }),
-  slot("pull", 3, 8, 12, 2.5, { preferredExercise: "Seated Cable Row" }),
-  slot("push", 3, 8, 12, 2.5, {
-    isVerticalPush: true,
-    preferredExercise: "Landmine Press",
-    phaseUpgrades: [
-      { name: "Barbell Overhead Press", phase: 3 },
-      { name: "Dumbbell Shoulder Press", phase: 2 },
-    ],
-  }),
-  slot("carry", 2, 20, 30, 2.5, { preferredExercise: "Farmer's Walk" }),
-  slot("shoulder_health", 2, 15, 20, 2.5, { preferredExercise: "Cable Face Pull" }),
+// Reps first, then load: pull-ups progress by reps before any weight is added.
+export const VERTICAL_PULL_LADDER: LadderRung[] = [
+  { exercise: "Lat Pulldown", incrementKg: 2.5 },
+  { exercise: "Pull-Up", incrementKg: 0 },
+  { exercise: "Weighted Pull-Up", incrementKg: 1.25 },
 ];
 
-// Gym B — the heavy day. Trap bar is the anchor: neutral grip, no bar on the back,
-// less spinal shear than a conventional pull. Kept to 3-5 strong reps, never ground
-// out. Single-leg strength has the strongest link to staying functional with age, so
-// the Bulgarian sits right behind it while the legs are still fresh.
-const GYM_B_SLOTS: ExerciseSlot[] = [
-  slot("power", 2, 5, 5, 1.0, { preferredExercise: "Medicine Ball Slam" }),
-  slot("squat", 4, 3, 5, 5.0, {
-    preferredExercise: "Trap Bar Deadlift",
-    phaseUpgrades: [
-      { name: "Barbell Back Squat", phase: 3 },
-      { name: "Safety Bar Squat", phase: 2 },
-    ],
-  }),
-  slot("squat", 3, 8, 12, 2.5, { preferredExercise: "Bulgarian Split Squat" }),
-  slot("push", 3, 8, 12, 2.5, {
-    preferredExercise: "Incline Dumbbell Press",
-    phaseUpgrades: [{ name: "Barbell Bench Press", phase: 3 }],
-  }),
-  slot("pull", 3, 8, 12, 2.5, { preferredExercise: "Chest Supported Row" }),
-  slot("core", 2, 12, 15, 2.5, { preferredExercise: "Cable Crunch" }),
-];
-
-// Gym C — glutes, carries and the second vertical pull. The hip thrust loads the
-// glutes hard with the spine barely involved, which is exactly what a day after the
-// heavy session should do. The pull here is VERTICAL: without it the week runs three
-// vertical sets against eleven horizontal, and vertical pulling is the one pattern
-// home training genuinely cannot cover.
-const GYM_C_SLOTS: ExerciseSlot[] = [
-  slot("power", 2, 5, 5, 1.0, { preferredExercise: "Medicine Ball Rotational Throw" }),
-  slot("hinge", 3, 10, 15, 2.5, {
-    preferredExercise: "Hip Thrust",
-    phaseUpgrades: [{ name: "Barbell Hip Thrust", phase: 2 }],
-  }),
-  slot("squat", 3, 10, 12, 2.5, { preferredExercise: "Step Up" }),
-  slot("push", 3, 8, 12, 2.5, { preferredExercise: "Cable Chest Press" }),
-  slot("pull", 3, 8, 12, 2.5, {
-    isVerticalPull: true,
-    preferredExercise: "Half-Kneeling Cable Pulldown",
-    phaseUpgrades: [
-      { name: "Pull-Up", phase: 3 },
-      { name: "Assisted Pull-Up", phase: 2 },
-    ],
-  }),
-  slot("carry", 2, 20, 30, 2.5, { preferredExercise: "Suitcase Carry" }),
-  slot("core", 2, 10, 12, 2.5, { preferredExercise: "Half-Kneeling Cable Chop" }),
-];
-
-// ─────────────────────────────────────────────────────────
-// HOME SESSIONS — table, ab wheel, bodyweight. That is the entire inventory.
-//
-// There is nothing to add load to, so EVERY progression here is leverage, and the
-// phase ladder is the only thing that makes a home day harder over time. That makes
-// the phase filter on the home pool load-bearing rather than cosmetic — without it
-// these sessions would never progress at all.
-//
-// Home sessions are deliberately cheaper than gym sessions (~14 sets, 25-40 min):
-// they are supplemental, and the shared recovery budget is mostly spent at the gym
-// and on the runs.
-// ─────────────────────────────────────────────────────────
-
-// Home A — upper body. Two presses and a pull, with the ab wheel covering
-// anti-extension harder than any plank does, and shoulder taps covering the
-// anti-rotation work that has no home equivalent of a Pallof press.
-const HOME_A_SLOTS: ExerciseSlot[] = [
-  slot("power", 2, 3, 5, 0, { preferredExercise: "Broad Jump" }),
-  slot("push", 3, 8, 15, 0, {
-    preferredExercise: "Push-Up",
-    phaseUpgrades: [
-      { name: "Deficit Push-Up", phase: 3 },
-      { name: "Feet-Elevated Push-Up", phase: 2 },
-    ],
-  }),
-  slot("push", 2, 8, 12, 0, {
-    isVerticalPush: true,
-    preferredExercise: "Incline Pike Push-Up",
-    phaseUpgrades: [
-      { name: "Deficit Pike Push-Up", phase: 3 },
-      { name: "Pike Push-Up", phase: 2 },
-    ],
-  }),
-  slot("pull", 3, 8, 12, 0, {
-    preferredExercise: "Inverted Row",
-    phaseUpgrades: [
-      { name: "Archer Inverted Row", phase: 3 },
-      { name: "Feet-Elevated Inverted Row", phase: 2 },
-    ],
-  }),
-  slot("core", 2, 6, 10, 0, {
-    preferredExercise: "Ab Wheel Rollout",
-    phaseUpgrades: [
-      { name: "Standing Rollout", phase: 3 },
-      { name: "Long-Lever Rollout", phase: 2 },
-    ],
-  }),
-  slot("shoulder_health", 2, 8, 12, 0, { preferredExercise: "Prone Y-T-W (Floor)" }),
-];
-
-// Home B — lower body. The table does real work: rear foot elevated for the Bulgarian,
-// heel elevated for the glute bridge, and heels hooked underneath to anchor the Nordic
-// curl — an elite hamstring exercise that costs nothing. Calf work is here because
-// ankle strength underpins gait and balance, and running loads it hard.
-const HOME_B_SLOTS: ExerciseSlot[] = [
-  slot("power", 2, 3, 5, 0, { preferredExercise: "Vertical Jump" }),
-  slot("hinge", 3, 12, 20, 0, {
-    preferredExercise: "Single Leg Glute Bridge",
-    phaseUpgrades: [
-      { name: "Nordic Hamstring Curl", phase: 3 },
-      { name: "Feet-Elevated Single Leg Glute Bridge", phase: 2 },
-    ],
-  }),
-  slot("squat", 3, 10, 15, 0, {
-    preferredExercise: "Reverse Lunge",
-    phaseUpgrades: [
-      { name: "Skater Squat", phase: 3 },
-      { name: "Bulgarian Split Squat", phase: 2 },
-    ],
-  }),
-  slot("pull", 2, 8, 12, 0, {
-    preferredExercise: "Inverted Row",
-    phaseUpgrades: [
-      { name: "Archer Inverted Row", phase: 3 },
-      { name: "Feet-Elevated Inverted Row", phase: 2 },
-    ],
-  }),
-  slot("calf", 2, 12, 15, 0, { preferredExercise: "Single-Leg Calf Raise" }),
-  slot("core", 2, 30, 45, 0, { preferredExercise: "Side Plank" }),
-];
-
-export const STRENGTH_TEMPLATES: WorkoutTemplate[] = [
-  { label: "Gym A — Hinge & Pull", focus: "posterior", kind: "gym", slots: GYM_A_SLOTS },
-  { label: "Gym B — Squat & Push", focus: "quad", kind: "gym", slots: GYM_B_SLOTS },
-  { label: "Gym C — Glute, Pull & Carry", focus: "glute", kind: "gym", slots: GYM_C_SLOTS },
-  { label: "Home A — Push, Pull & Core", focus: "upper", kind: "home", slots: HOME_A_SLOTS },
-  { label: "Home B — Lower, Pull & Core", focus: "lower", kind: "home", slots: HOME_B_SLOTS },
-];
-
-/** The five strength sessions. Weekday placement belongs to the week planner. */
-export function getStrengthTemplates(): WorkoutTemplate[] {
-  return STRENGTH_TEMPLATES;
+function verticalPull(sets: number): ProgramSlot {
+  return s(
+    "Lat Pulldown", sets, 6, 10, 2.5, "compound",
+    "Vertical pull / lats. Ladder: lat pulldown → bodyweight pull-up → weighted pull-up.",
+    { ladder: VERTICAL_PULL_LADDER }
+  );
 }
 
-// ─────────────────────────────────────────────────────────
-
-const VERTICAL_PULL_POOL = ["Lat Pulldown", "Half-Kneeling Cable Pulldown", "Assisted Pull-Up", "Pull-Up"];
-const HORIZONTAL_PULL_POOL = ["Seated Cable Row", "Chest Supported Row", "Single Arm Cable Row", "Machine Row", "Dumbbell Single Arm Row"];
-const VERTICAL_PUSH_POOL = ["Landmine Press", "Dumbbell Shoulder Press"];
-
-/** Cable-first ordering, applied when nothing more specific decides the pick. */
-function cablePreferred(a: Exercise, b: Exercise): number {
-  const aCable = a.equipment.includes("cable") ? 0 : 1;
-  const bCable = b.equipment.includes("cable") ? 0 : 1;
-  return aCable - bCable;
+function externalRotation(): ProgramSlot {
+  return s("Cable External Rotation", 2, 12, 15, 2.5, "accessory",
+    "Direct rotator-cuff strength — the one shoulder function nothing else loads directly.",
+    { perSide: true });
 }
 
-// From a pool of names, take the most advanced one the user's phase has unlocked.
-function pickFromPool(
-  pool: string[],
-  usedNames: Set<string>,
-  exercises: Exercise[]
-): Exercise | null {
-  const ranked = pool
-    .map((name) => exercises.find((e) => e.name === name))
-    .filter((e): e is Exercise => !!e && !usedNames.has(e.name))
-    .sort((a, b) => b.phase_unlock - a.phase_unlock || cablePreferred(a, b));
-  const ex = ranked[0];
-  if (ex) {
-    usedNames.add(ex.name);
-    return ex;
+// ── Warm-up ──────────────────────────────────────────────────────────────────
+// ~8-10 min, only kit that exists. General part every day, then a leg or upper add-on.
+
+const WARMUP_GENERAL = [
+  "60–90 s jumping jacks or brisk marching on the spot",
+  "10 arm circles each way",
+  "10 bodyweight squats",
+  "10 bodyweight hip hinges (hands on hips, push the hips back)",
+];
+
+const WARMUP_LEGS = [
+  "5 slow split squats per leg",
+  "10 leg swings per leg, forward and sideways",
+  "10 small pogo hops, then 2 easy practice jumps",
+];
+
+const WARMUP_UPPER = [
+  "15 cable face pulls, very light",
+  "12 cable external rotations per side, very light",
+  "8 push-ups",
+  "8 scapular pull-ups (hang, pull the shoulder blades down, arms stay straight)",
+];
+
+const RAMP_HEAVY =
+  "Ramp-up sets (not logged): empty bar/very light × 8, ~50% × 5, ~70% × 3, ~85% × 1–2 — then working sets.";
+const RAMP_LIGHT = "Ramp-up (not logged): 1–2 light sets of 8–10 before the working sets.";
+
+// ── The 3-week medicine-ball rotation ────────────────────────────────────────
+// Week 1: Tue rotational throw, Thu chest pass
+// Week 2: Tue slam,             Thu chest pass
+// Week 3: Tue rotational throw, Thu slam
+// …then repeat. CMJ and broad jump are fixed.
+const ROT = "Medicine Ball Rotational Throw";
+const PASS = "Medicine Ball Chest Pass";
+const SLAM = "Medicine Ball Slam";
+
+// ── The week ─────────────────────────────────────────────────────────────────
+// Order inside every session: warm-up → power → heavy strength → hypertrophy/
+// accessory → core/carry → Zone 2 where relevant.
+
+export const PROGRAM: ProgramDay[] = [
+  {
+    day: "tuesday",
+    label: "Upper Strength + Rotational Power",
+    focus: "Heavy horizontal and landmine press, rows, shoulders, loaded flexion",
+    zone2After: false,
+    warmup: [...WARMUP_GENERAL, ...WARMUP_UPPER],
+    rampUp: { slot: 1, text: RAMP_HEAVY },
+    slots: [
+      s(ROT, 3, 4, 4, 0, "power",
+        "Rotational power (weeks 1 and 3) / whole-body slam (week 2). Maximal intent, no fatigue.",
+        { perSide: true, rotation: [ROT, SLAM, ROT] }),
+      s("Smith Bench Press", 3, 5, 8, 2.5, "heavy",
+        "Primary horizontal pressing strength."),
+      s("Landmine Press", 3, 5, 8, 2.5, "heavy",
+        "Primary vertical-diagonal pressing strength on the shoulder-friendliest path."),
+      s("Seated Cable Row", 3, 8, 12, 2.5, "compound",
+        "Primary horizontal pull."),
+      s("Half-Kneeling Cable Pulldown", 2, 8, 12, 2.5, "compound",
+        "Unilateral lat work with trunk control and shoulder/hip coordination.",
+        { perSide: true }),
+      s("Cable Lateral Raise", 2, 12, 20, 2.5, "accessory",
+        "Lateral deltoid.", { perSide: true }),
+      s("Cable Face Pull", 2, 12, 20, 2.5, "accessory",
+        "Posterior shoulder and scapular function."),
+      externalRotation(),
+      s("Cable Crunch", 3, 8, 15, 2.5, "core",
+        "Heavy, progressive loaded spinal flexion."),
+    ],
+  },
+  {
+    day: "wednesday",
+    label: "Lower Strength + Pull + Carry",
+    focus: "Heavy hinge and squat, vertical pull, unilateral legs, heavy carry",
+    zone2After: false,
+    warmup: [...WARMUP_GENERAL, ...WARMUP_LEGS],
+    rampUp: { slot: 1, text: RAMP_HEAVY },
+    slots: [
+      s("Countermovement Jump", 3, 3, 3, 0, "power",
+        "Vertical lower-body power, rate of force development, bone-loading impact."),
+      s("Trap Bar Deadlift", 3, 3, 5, 5, "heavy",
+        "Total-body strength: posterior chain, glutes, hamstrings, traps, grip, bracing, bone loading."),
+      s("Smith Squat", 3, 5, 8, 5, "heavy",
+        "Heavy squat pattern: quads, glutes, leg strength reserve, bone loading."),
+      verticalPull(3),
+      s("Smith Bulgarian Split Squat", 2, 8, 10, 2.5, "compound",
+        "Unilateral knee-dominant strength, balance and side-to-side hip/knee control.",
+        { perSide: true }),
+      s("Trap Bar Farmer Carry", 2, 20, 30, 5, "carry",
+        "Bilateral carry: grip, traps, anti-lateral flexion, gait under load.",
+        { unit: "meters" }),
+      s("Smith Calf Raise", 2, 8, 12, 2.5, "accessory",
+        "Direct plantarflexion — calf and Achilles capacity."),
+    ],
+  },
+  {
+    day: "thursday",
+    label: "Upper Hypertrophy + Power",
+    focus: "Incline press, chest-supported row, pull, landmine, shoulders",
+    zone2After: true,
+    warmup: [...WARMUP_GENERAL, ...WARMUP_UPPER],
+    rampUp: { slot: 1, text: RAMP_LIGHT },
+    slots: [
+      s(PASS, 3, 4, 4, 0, "power",
+        "Upper-body horizontal power (weeks 1-2) / whole-body slam (week 3). Stop before speed drops.",
+        { rotation: [PASS, PASS, SLAM] }),
+      s("Smith Incline Bench Press", 3, 8, 12, 2.5, "compound",
+        "Incline pressing — upper-chest hypertrophy."),
+      s("Chest Supported Row", 3, 8, 12, 2.5, "compound",
+        "Hard upper-back rowing with no extra spinal load — the week already has trap bar and RDL."),
+      verticalPull(2),
+      s("Half-Kneeling Single-Arm Landmine Press", 2, 8, 12, 2.5, "compound",
+        "Unilateral diagonal pressing with trunk control, shoulder-friendly.",
+        { perSide: true }),
+      s("Cable Lateral Raise", 2, 12, 20, 2.5, "accessory",
+        "Lateral deltoid.", { perSide: true }),
+      s("Cable Face Pull", 2, 12, 20, 2.5, "accessory",
+        "Posterior shoulder and scapular function."),
+      externalRotation(),
+      s("Cable Crunch", 2, 10, 15, 2.5, "core",
+        "Loaded spinal flexion."),
+    ],
+  },
+  {
+    day: "friday",
+    label: "Posterior Chain + Unilateral + Core",
+    focus: "RDL, glutes, step-ups, knee flexion, chest volume, rotation",
+    zone2After: false,
+    warmup: [...WARMUP_GENERAL, ...WARMUP_LEGS],
+    rampUp: { slot: 1, text: RAMP_HEAVY },
+    slots: [
+      s("Broad Jump", 3, 3, 3, 0, "power",
+        "Horizontal lower-body power. Maximal quality and distance, no conditioning."),
+      s("Barbell Romanian Deadlift", 3, 6, 10, 5, "heavy",
+        "Hamstrings (lengthened), glutes, spinal erectors, trunk bracing."),
+      s("Smith Hip Thrust", 2, 8, 12, 5, "compound",
+        "Glute strength/hypertrophy and hip extension with little spinal load."),
+      s("Step Up", 2, 8, 12, 2.5, "compound",
+        "Unilateral hip-dominant strength, balance, functional leg strength.",
+        { perSide: true }),
+      s("Cable Leg Curl", 2, 10, 15, 2.5, "accessory",
+        "Direct knee flexion — the hamstring function the RDL does not cover."),
+      s("Cable Chest Press", 2, 8, 12, 2.5, "compound",
+        "Extra chest hypertrophy exposure without heavy systemic load."),
+      s("Half-Kneeling Cable Chop", 2, 10, 12, 2.5, "core",
+        "Obliques, rotation and controlled anti-rotation, diagonal force transfer.",
+        { perSide: true }),
+      s("Smith Calf Raise", 2, 10, 15, 2.5, "accessory",
+        "Direct plantarflexion — calf and Achilles capacity."),
+    ],
+  },
+  {
+    day: "saturday",
+    label: "Low-Fatigue Full Body",
+    focus: "Deliberately the lightest day — ahead of Sunday's rest and Monday's hard run",
+    zone2After: true,
+    warmup: [...WARMUP_GENERAL, ...WARMUP_UPPER.slice(0, 2)],
+    rampUp: { slot: 0, text: RAMP_LIGHT },
+    slots: [
+      s("Cable Chest Press", 2, 10, 15, 2.5, "compound",
+        "Horizontal push with minimal systemic cost."),
+      s("Half-Kneeling Cable Pulldown", 2, 8, 12, 2.5, "compound",
+        "Unilateral vertical pull with trunk control.", { perSide: true }),
+      s("Smith Hip Thrust", 2, 10, 15, 2.5, "compound",
+        "Hip extension with little spinal or neural cost."),
+      s("Cable Leg Curl", 2, 10, 15, 2.5, "accessory",
+        "Direct knee flexion."),
+      s("Suitcase Carry", 2, 20, 30, 2.5, "carry",
+        "Unilateral carry: anti-lateral flexion, obliques, grip, trunk stability.",
+        { unit: "meters", perSide: true }),
+      s("Smith Calf Raise", 2, 12, 20, 2.5, "accessory",
+        "Direct plantarflexion."),
+      s("Half-Kneeling Cable Chop", 2, 10, 12, 2.5, "core",
+        "Rotation / anti-rotation.", { perSide: true }),
+    ],
+  },
+];
+
+// ── The frame around the lifting (not part of strength volume) ───────────────
+
+export const WEEK_FRAME: Record<DayOfWeek, string> = {
+  monday: "Hard run — no strength",
+  tuesday: "Strength",
+  wednesday: "Strength",
+  thursday: "Strength, then Zone 2",
+  friday: "Strength",
+  saturday: "Strength (lowest fatigue), then Zone 2",
+  sunday: "Full rest",
+};
+
+/** The weekly hard run — eased in the deload week. */
+export const HARD_RUN_DAY: DayOfWeek = "monday";
+
+/** Days whose session loads the legs heavily — used for recovery/nutrition nudges. */
+export function isHeavyLowerDay(day: DayOfWeek | string | undefined): boolean {
+  return day === "wednesday" || day === "friday";
+}
+
+// ── Week-dependent prescription ──────────────────────────────────────────────
+
+export const DELOAD_WEEK = BLOCK_WEEKS;
+
+/** Which leg of the 3-week medicine-ball rotation a block week is in (0, 1, 2). */
+export function rotationIndex(weekInBlock: number): 0 | 1 | 2 {
+  const w = Math.min(Math.max(Math.round(weekInBlock), 1), BLOCK_WEEKS);
+  return ((w - 1) % 3) as 0 | 1 | 2;
+}
+
+export interface RirTarget {
+  min: number;
+  max: number | null; // null = "or more"
+  label: string;
+}
+
+/**
+ * Planned reps in reserve for a role in a block week. Power has none — it is judged
+ * on speed and quality, never on proximity to failure.
+ *
+ *   wk1 ~3 · wk2 2-3 · wk3 ~2 · wk4 1-2 · wk5 1-2 (hypertrophy: last sets; heavy
+ *   compounds keep a controlled reserve, no grinders) · wk6 deload 4+
+ */
+export function targetRir(role: SlotRole, weekInBlock: number): RirTarget | null {
+  if (role === "power") return null;
+  if (weekInBlock >= DELOAD_WEEK) return { min: 4, max: null, label: "4+ RIR — deload" };
+  switch (weekInBlock) {
+    case 1:
+      return { min: 3, max: 3, label: "~3 RIR" };
+    case 2:
+      return { min: 2, max: 3, label: "2–3 RIR" };
+    case 3:
+      return { min: 2, max: 2, label: "~2 RIR" };
+    case 4:
+      return { min: 1, max: 2, label: "1–2 RIR" };
+    default:
+      return role === "heavy"
+        ? { min: 1, max: 2, label: "1–2 RIR — controlled, no grinders" }
+        : { min: 1, max: 2, label: "1–2 RIR on the last sets" };
   }
-  return null;
 }
 
-function pickExercise(
-  slot: ExerciseSlot,
-  usedNames: Set<string>,
-  exercises: Exercise[],
-  currentPhase: number
-): Exercise | null {
-  const { category, isVerticalPull, isVerticalPush, preferredExercise, phaseUpgrades } = slot;
+/** Rest between sets, in seconds — enough to hold performance, never cut short to add difficulty. */
+export function restSeconds(role: SlotRole): number {
+  switch (role) {
+    case "power":
+      return 150; // 2-3+ min
+    case "heavy":
+      return 180; // 2.5-4 min
+    case "compound":
+      return 150; // 2-3 min
+    case "carry":
+      return 150; // 2-3 min
+    default:
+      return 120; // isolation/core 1.5-2.5 min
+  }
+}
 
-  // 1. Phase upgrade — the hardest unlocked variant wins. This is what makes phases
-  //    mean something on every day rather than only on Gym A.
-  if (phaseUpgrades) {
-    const unlocked = phaseUpgrades
-      .filter((u) => u.phase <= currentPhase)
-      .sort((a, b) => b.phase - a.phase);
-    for (const u of unlocked) {
-      if (usedNames.has(u.name)) continue;
-      const ex = exercises.find((e) => e.name === u.name);
-      if (ex) {
-        usedNames.add(ex.name);
-        return ex;
+export function restLabel(role: SlotRole): string {
+  switch (role) {
+    case "power":
+      return "2–3+ min";
+    case "heavy":
+      return "2.5–4 min";
+    case "compound":
+    case "carry":
+      return "2–3 min";
+    default:
+      return "1.5–2.5 min";
+  }
+}
+
+export interface Prescription {
+  sets: number;
+  repsMin: number;
+  repsMax: number;
+  rir: RirTarget | null;
+  restSec: number;
+  isDeload: boolean;
+}
+
+export function prescriptionFor(slot: ProgramSlot, weekInBlock: number): Prescription {
+  const isDeload = weekInBlock >= DELOAD_WEEK;
+  return {
+    sets: isDeload ? deloadSets(slot.sets) : slot.sets,
+    repsMin: slot.repsMin,
+    repsMax: slot.repsMax,
+    rir: targetRir(slot.role, weekInBlock),
+    restSec: restSeconds(slot.role),
+    isDeload,
+  };
+}
+
+// ── Resolving slots against the catalogue ────────────────────────────────────
+
+/** Every catalogue name the program can put in front of you. */
+export function programExerciseNames(program: ProgramDay[] = PROGRAM): string[] {
+  const names = new Set<string>();
+  for (const d of program) {
+    for (const sl of d.slots) {
+      names.add(sl.exercise);
+      sl.ladder?.forEach((r) => names.add(r.exercise));
+      sl.rotation?.forEach((n) => names.add(n));
+    }
+  }
+  return [...names];
+}
+
+/** Exercises that appear on more than one day — their history must be read per day. */
+export function multiDayExercises(program: ProgramDay[] = PROGRAM): Set<string> {
+  const days = new Map<string, Set<DayOfWeek>>();
+  for (const d of program) {
+    for (const sl of d.slots) {
+      const names = [sl.exercise, ...(sl.ladder?.map((r) => r.exercise) ?? []), ...(sl.rotation ?? [])];
+      for (const n of names) {
+        if (!days.has(n)) days.set(n, new Set());
+        days.get(n)!.add(d.day);
       }
     }
   }
+  return new Set([...days].filter(([, ds]) => ds.size > 1).map(([n]) => n));
+}
 
-  // 2. The explicit Phase-1 default.
-  if (preferredExercise && !usedNames.has(preferredExercise)) {
-    const ex = exercises.find((e) => e.name === preferredExercise);
-    if (ex) {
-      usedNames.add(ex.name);
-      return ex;
-    }
-  }
-
-  // 3. Pattern pools for pull and vertical push slots.
-  if (category === "pull") {
-    const fromPool = pickFromPool(
-      isVerticalPull ? VERTICAL_PULL_POOL : HORIZONTAL_PULL_POOL,
-      usedNames,
-      exercises
+export class MissingExercisesError extends Error {
+  constructor(public missing: string[]) {
+    super(
+      `The exercise catalogue is missing ${missing.length} program exercise(s): ${missing.join(", ")}. ` +
+        `Run POST /api/seed to add them, then regenerate the program.`
     );
-    if (fromPool) return fromPool;
   }
-  if (category === "push" && isVerticalPush) {
-    const fromPool = pickFromPool(VERTICAL_PUSH_POOL, usedNames, exercises);
-    if (fromPool) return fromPool;
-  }
-
-  // 4. Anything unused in the category — cable first, since by this point the
-  //    candidates are otherwise equivalent for the slot.
-  const candidates = exercises
-    .filter((e) => e.category === category && !usedNames.has(e.name))
-    .sort(cablePreferred);
-  if (candidates[0]) {
-    usedNames.add(candidates[0].name);
-    return candidates[0];
-  }
-
-  return null;
 }
 
 export interface ResolvedExercise {
@@ -349,66 +480,110 @@ export interface ResolvedExercise {
 }
 
 export interface ResolvedTemplate {
+  day: DayOfWeek;
   templateLabel: string;
-  kind: "gym" | "home";
   isHomeWorkout: boolean;
   exercises: ResolvedExercise[];
 }
 
 /**
- * Which exercises a gym session may draw on.
- *
- * Phase-gated AND genuinely loaded. The loaded test is also the home-first rule:
- * push-ups, planks, jumps and ab-wheel work carry no loaded equipment, so they drop
- * out of the gym pool automatically and stay where they belong.
+ * The program as rows ready to store. Throws when any program exercise is missing
+ * from the catalogue — silently dropping a slot is exactly the kind of "success" that
+ * hides a broken program.
  */
-export function gymPool(all: Exercise[], phase: number): Exercise[] {
-  return all.filter((e) => e.phase_unlock <= phase && isLoaded(e.equipment));
+export function resolveProgram(program: ProgramDay[], exercises: Exercise[]): ResolvedTemplate[] {
+  const byName = new Map(exercises.map((e) => [e.name, e]));
+  const missing = programExerciseNames(program).filter((n) => !byName.has(n));
+  if (missing.length > 0) throw new MissingExercisesError(missing);
+
+  return program.map((d) => ({
+    day: d.day,
+    templateLabel: d.label,
+    isHomeWorkout: false,
+    exercises: d.slots.map((sl, i) => ({
+      exercise: byName.get(sl.exercise)!,
+      order_index: i,
+      target_sets: sl.sets,
+      target_reps_min: sl.repsMin,
+      target_reps_max: sl.repsMax,
+      progression_increment_kg: sl.incrementKg,
+    })),
+  }));
 }
 
 /**
- * Which exercises a home session may draw on.
+ * The program slot a stored planned exercise belongs to.
  *
- * Phase-gated too. That filter was missing before, which meant home days could never
- * progress — and now that every home progression is a leverage ladder, it is the only
- * mechanism making them harder over time.
+ * Matched on weekday + position AND checked against the names the slot can hold, so a
+ * stale pre-rework program in the database is never dressed up with the wrong
+ * prescription — it just gets no slot until the program is regenerated.
  */
-export function homePool(all: Exercise[], phase: number): Exercise[] {
-  return all.filter((e) => e.home_compatible && e.phase_unlock <= phase);
+export function slotFor(
+  day: DayOfWeek,
+  orderIndex: number,
+  storedExerciseName: string | undefined,
+  program: ProgramDay[] = PROGRAM
+): ProgramSlot | null {
+  const sl = program.find((d) => d.day === day)?.slots[orderIndex];
+  if (!sl) return null;
+  const allowed = [sl.exercise, ...(sl.ladder?.map((r) => r.exercise) ?? []), ...(sl.rotation ?? [])];
+  return storedExerciseName && allowed.includes(storedExerciseName) ? sl : null;
 }
 
-export function resolveExercisesForTemplates(
-  templates: WorkoutTemplate[],
-  allExercises: Exercise[],
-  currentPhase: number
-): ResolvedTemplate[] {
-  return templates.map((template) => {
-    const usedNames = new Set<string>();
-    const pool =
-      template.kind === "home"
-        ? homePool(allExercises, currentPhase)
-        : gymPool(allExercises, currentPhase);
+export interface ScheduledChoice {
+  exercise: string;
+  incrementKg: number;
+  /** Next ladder rung, when there is one — shown as the progression target. */
+  nextRung: string | null;
+  perSide: boolean;
+}
 
-    const resolved = template.slots
-      .map((s, i) => {
-        const ex = pickExercise(s, usedNames, pool, currentPhase);
-        if (!ex) return null;
-        return {
-          exercise: ex,
-          order_index: i,
-          target_sets: s.target_sets,
-          target_reps_min: s.target_reps_min,
-          target_reps_max: s.target_reps_max,
-          progression_increment_kg: s.progression_increment_kg,
-        };
-      })
-      .filter((x): x is ResolvedExercise => x !== null);
-
+/**
+ * What a slot actually is this week.
+ *
+ *   rotation → the rotation's pick for this block week
+ *   ladder   → the rung you logged MOST RECENTLY (a swap up or down sticks, because
+ *              it's what you did last); the first rung if you've logged none
+ *
+ * `lastLoggedRung` is the ladder exercise name with the newest logged set, or null.
+ */
+export function scheduledExercise(
+  slot: ProgramSlot,
+  weekInBlock: number,
+  lastLoggedRung: string | null = null
+): ScheduledChoice {
+  if (slot.rotation) {
+    const pick = slot.rotation[rotationIndex(weekInBlock)];
+    // Only the rotational throw is done per side; the slam and chest pass are not.
+    return { exercise: pick, incrementKg: slot.incrementKg, nextRung: null, perSide: pick === ROT };
+  }
+  if (slot.ladder) {
+    const idx = Math.max(0, slot.ladder.findIndex((r) => r.exercise === lastLoggedRung));
+    const rung = slot.ladder[idx];
     return {
-      templateLabel: template.label,
-      kind: template.kind,
-      isHomeWorkout: template.kind === "home",
-      exercises: resolved,
+      exercise: rung.exercise,
+      incrementKg: rung.incrementKg,
+      nextRung: slot.ladder[idx + 1]?.exercise ?? null,
+      perSide: slot.perSide,
     };
-  });
+  }
+  return { exercise: slot.exercise, incrementKg: slot.incrementKg, nextRung: null, perSide: slot.perSide };
+}
+
+// ── Swaps ────────────────────────────────────────────────────────────────────
+
+/** Equipment actually available. Anything needing other kit never appears as a swap. */
+export const AVAILABLE_EQUIPMENT = new Set([
+  "bodyweight", "barbell", "smith", "cable", "trap_bar", "bench", "pull_up_bar",
+  "plate", "medicine_ball",
+]);
+
+/**
+ * Candidates for a one-day swap: same movement category, doable with the kit on hand.
+ * No dumbbells, kettlebells, machines, bands or ab wheel.
+ */
+export function swapPool(all: Exercise[]): Exercise[] {
+  return all.filter(
+    (e) => e.equipment.length > 0 && e.equipment.every((eq) => AVAILABLE_EQUIPMENT.has(eq))
+  );
 }
