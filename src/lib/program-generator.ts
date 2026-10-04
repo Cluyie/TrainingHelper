@@ -50,7 +50,7 @@ import { BLOCK_WEEKS, deloadSets } from "@/lib/deload";
  *   carry     loaded carries, progressed by distance and then load.
  */
 export type SlotRole = "power" | "heavy" | "compound" | "accessory" | "core" | "carry";
-export type SlotUnit = "reps" | "meters";
+export type SlotUnit = "reps" | "meters" | "seconds";
 
 export interface LadderRung {
   exercise: string;
@@ -270,18 +270,21 @@ export const PROGRAM: ProgramDay[] = [
     zone2After: false,
     warmup: [...WARMUP_GENERAL, ...WARMUP_LEGS],
     rampUp: { slot: 1, text: RAMP_HEAVY },
+    // No hip thrust: the trap bar, squat, split squat, RDL and step-ups already load the
+    // glutes; a thrust here added size, not function.
     slots: [
       s("Broad Jump", 3, 3, 3, 0, "power",
         "Horizontal lower-body power. Maximal quality and distance, no conditioning."),
       s("Barbell Romanian Deadlift", 3, 6, 10, 5, "heavy",
         "Hamstrings (lengthened), glutes, spinal erectors, trunk bracing."),
-      s("Smith Hip Thrust", 2, 8, 12, 5, "compound",
-        "Glute strength/hypertrophy and hip extension with little spinal load."),
       s("Step Up", 2, 8, 12, 2.5, "compound",
         "Unilateral hip-dominant strength, balance, functional leg strength.",
         { perSide: true }),
-      s("Cable Leg Curl", 2, 10, 15, 2.5, "accessory",
-        "Direct knee flexion — the hamstring function the RDL does not cover."),
+      // Friday, not Saturday: the soreness Nordics cause needs the three days before
+      // Monday's hard run.
+      s("Nordic Hamstring Curl", 2, 3, 6, 0, "accessory",
+        "Eccentric knee flexion — hamstring strength and injury resistance for hard running. " +
+        "Progress by lowering further and slower, not by load. First two weeks: 1–2 sets of 3."),
       s("Cable Chest Press", 2, 8, 12, 2.5, "compound",
         "Extra chest hypertrophy exposure without heavy systemic load."),
       s("Half-Kneeling Cable Chop", 2, 10, 12, 2.5, "core",
@@ -292,28 +295,31 @@ export const PROGRAM: ProgramDay[] = [
     ],
   },
   {
+    // No leg training: the legs get Zone 2, Sunday's rest and Monday's hard run. The
+    // upper body isn't used by the run, so push, pull and grip still do real work —
+    // and bodyweight/free movement brings in what the rails and cables leave out.
     day: "saturday",
-    label: "Low-Fatigue Full Body",
-    focus: "Deliberately the lightest day — ahead of Sunday's rest and Monday's hard run",
+    label: "Upper, Trunk + Balance",
+    focus: "Free-moving push and pull, grip, balance and anti-rotation — legs stay fresh for Monday",
     zone2After: true,
     warmup: [...WARMUP_GENERAL, ...WARMUP_UPPER.slice(0, 2)],
-    rampUp: { slot: 0, text: RAMP_LIGHT },
+    rampUp: { slot: 0, text: "Ramp-up (not logged): 1–2 easy sets of 8 incline push-ups, hands on the Smith bar." },
     slots: [
-      s("Cable Chest Press", 2, 10, 15, 2.5, "compound",
-        "Horizontal push with minimal systemic cost."),
-      s("Half-Kneeling Cable Pulldown", 2, 8, 12, 2.5, "compound",
-        "Unilateral vertical pull with trunk control.", { perSide: true }),
-      s("Smith Hip Thrust", 2, 10, 15, 2.5, "compound",
-        "Hip extension with little spinal or neural cost."),
-      s("Cable Leg Curl", 2, 10, 15, 2.5, "accessory",
-        "Direct knee flexion."),
+      s("Push-Up", 3, 8, 15, 0, "compound",
+        "Horizontal push with free-moving shoulder blades — shoulder-friendly. " +
+        "Top of the range on every set → move to feet-elevated push-ups."),
+      s("Inverted Row", 3, 8, 12, 0, "compound",
+        "Bodyweight horizontal pull. Harder: lower the Smith bar or raise the feet."),
+      s("Dead Hang", 2, 20, 45, 0, "accessory",
+        "Grip and shoulders under a long, loaded stretch.", { unit: "seconds" }),
+      s("Single-Leg Romanian Deadlift", 2, 6, 8, 0, "accessory",
+        "Balance drill, not leg training: single-leg control through the hip, slow and steady.",
+        { perSide: true }),
       s("Suitcase Carry", 2, 20, 30, 2.5, "carry",
         "Unilateral carry: anti-lateral flexion, obliques, grip, trunk stability.",
         { unit: "meters", perSide: true }),
-      s("Smith Calf Raise", 2, 12, 20, 2.5, "accessory",
-        "Direct plantarflexion."),
-      s("Half-Kneeling Cable Chop", 2, 10, 12, 2.5, "core",
-        "Rotation / anti-rotation.", { perSide: true }),
+      s("Pallof Press", 2, 10, 10, 2.5, "core",
+        "Anti-rotation — resisting the twist rather than producing it.", { perSide: true }),
     ],
   },
 ];

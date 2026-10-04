@@ -331,7 +331,7 @@ export const EXERCISES = [
     shoulder_safe: true,
     lower_back_safe: true,
     home_compatible: true,
-    description: "Lie under a sturdy table (or a bar in a rack), grip the edge, body in a straight line with heels on the floor. Pull your chest to the edge, squeeze the shoulder blades, lower with control. A true bodyweight horizontal pull — the home counterpart to the gym row that keeps the shoulders balanced. Scale by walking your feet in (easier) or elevating them (harder).",
+    description: "Set the Smith bar at about hip height and lock it. Lie under it, grip just wider than the shoulders, body in a straight line from heels to head. Pull the chest to the bar, squeeze the shoulder blades together, lower with control. A true bodyweight horizontal pull with the shoulder blades free to move. Easier: raise the bar or walk the feet in. Harder: lower the bar, or put the heels up on the bench.",
     muscle_groups: ["lats", "rhomboids", "biceps", "rear_delts"],
   },
 
@@ -760,7 +760,7 @@ export const EXERCISES = [
     shoulder_safe: true,
     lower_back_safe: true,
     home_compatible: true,
-    description: "Kneel with the heels hooked under a sturdy table, hips locked straight, and lower the torso toward the floor as slowly as you can before catching yourself with the hands. Push back up. One of the most effective hamstring exercises that exists and among the best-evidenced for reducing hamstring injury — and it needs nothing but a table.",
+    description: "Kneel on a pad with the heels hooked under a loaded barbell on the floor (or the Smith bar locked at its lowest setting). Hips locked straight, lower the torso toward the floor as slowly as you can, then catch yourself with the hands and push back up. Progress by lowering further and slower, not by adding load. Among the best-evidenced exercises for reducing hamstring injury. Expect real soreness the first times — start with 1–2 sets of 3.",
     muscle_groups: ["hamstrings", "glutes", "core"],
   },
   {
@@ -943,6 +943,28 @@ export const EXERCISES = [
     home_compatible: false,
     description: "Cable handle at elbow height, stand side-on with the working arm away from the stack. Elbow bent 90° and pinned to your side (a folded towel between elbow and ribs helps). Rotate the forearm outward, away from the body, pause, return slowly. Light and strict — the rotator cuff, not the whole body, does the work. Reps are per side.",
     muscle_groups: ["rotator_cuff", "rear_delts"],
+  },
+  {
+    name: "Dead Hang",
+    category: "pull",
+    equipment: ["bodyweight"],
+    phase_unlock: 1,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: false,
+    description: "Hang from the pull-up bar, overhand grip about shoulder width, arms straight. Keep the shoulders gently engaged — not shrugged up to the ears, not fully collapsed — and breathe slowly. Log the seconds held. Grip strength and the shoulders under a long, loaded stretch.",
+    muscle_groups: ["grip", "lats", "shoulders"],
+  },
+  {
+    name: "Single-Leg Romanian Deadlift",
+    category: "hinge",
+    equipment: ["bodyweight"],
+    phase_unlock: 1,
+    shoulder_safe: true,
+    lower_back_safe: true,
+    home_compatible: true,
+    description: "Stand on one leg with a soft knee. Hinge at the hip, letting the free leg travel back in line with the torso, until the body is near horizontal or you lose position — hips stay square to the floor. Return slowly. A balance drill, not leg training: slow and steady, a fingertip on the rack is fine at first. Reps are per side.",
+    muscle_groups: ["hamstrings", "glutes", "core"],
   },
 ];
 

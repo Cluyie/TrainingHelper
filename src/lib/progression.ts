@@ -67,7 +67,7 @@ export interface ProgressionOptions {
   rirMin?: number | null;
   /** Power work never progresses by load. */
   isPower?: boolean;
-  unit?: "reps" | "meters";
+  unit?: "reps" | "meters" | "seconds";
   /**
    * The history came from a DIFFERENT weekday. The same lift can sit on two days with
    * different rep ranges (calf raise 8-12 Mon, 12-20 Fri), so another day's weight is
@@ -85,7 +85,7 @@ export function getProgressionSuggestion(
   const exerciseId = plannedExercise.exercise_id;
   const increment = plannedExercise.progression_increment_kg;
   const isBodyweight = increment === 0 && !opts.isPower;
-  const unitWord = opts.unit === "meters" ? "m" : "reps";
+  const unitWord = opts.unit === "meters" ? "m" : opts.unit === "seconds" ? "seconds" : "reps";
 
   // Judge today against last time only — not against a rolling window of sessions.
   const lastSession = lastSessionSets(recentSets);
@@ -175,7 +175,7 @@ export function getProgressionSuggestion(
 
   // ── Bodyweight: reps, then leverage ──────────────────────────────────────
   if (isBodyweight) {
-    const unit = plannedExercise.target_reps_min >= 20 ? "seconds" : "reps";
+    const unit = opts.unit === "seconds" || plannedExercise.target_reps_min >= 20 ? "seconds" : "reps";
 
     if (allHitMax) {
       return {

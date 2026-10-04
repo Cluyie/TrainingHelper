@@ -110,7 +110,7 @@ export interface PlannedExercise {
 
 export interface PlannedSlotInfo {
   role: "power" | "heavy" | "compound" | "accessory" | "core" | "carry";
-  unit: "reps" | "meters";
+  unit: "reps" | "meters" | "seconds";
   per_side: boolean;
   purpose: string;
   // Vertical-pull ladder: the rung to move to once this one tops out.

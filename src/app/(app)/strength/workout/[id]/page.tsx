@@ -465,6 +465,7 @@ export default function WorkoutPage() {
   const programDay = PROGRAM.find((d) => d.day === workout.day_of_week && d.label === workout.label);
   const repsLabel =
     slot?.unit === "meters" ? (slot.per_side ? "Meters / side" : "Meters")
+    : slot?.unit === "seconds" ? (slot.per_side ? "Seconds / side" : "Seconds")
     : currentPE && currentPE.target_reps_min >= 20 && currentPE.progression_increment_kg === 0 && !slot ? "Seconds"
     : slot?.per_side ? "Reps / side" : "Reps";
   const selectedRir = currentPE && rpeByExercise[currentPE.id] != null ? 10 - rpeByExercise[currentPE.id] : null;
@@ -660,11 +661,15 @@ export default function WorkoutPage() {
 
           {/* Last session + target */}
           <div className="shrink-0 flex items-center gap-2">
-            {suggestion?.last_weight_kg != null ? (
+            {/* Bodyweight suggestions carry no weight, only reps — they still have a last session. */}
+            {suggestion?.last_weight_kg != null || suggestion?.last_reps != null ? (
               <div className="flex-1 px-3 py-2 rounded-xl"
                 style={{ background: "var(--surface-2)" }}>
                 <p className="text-[10px] font-semibold mb-0.5" style={{ color: "var(--muted)" }}>LAST SESSION</p>
-                <p className="text-sm font-bold">{suggestion.last_weight_kg}kg × {suggestion.last_reps} reps</p>
+                <p className="text-sm font-bold">
+                  {suggestion.last_weight_kg != null ? `${suggestion.last_weight_kg}kg × ` : ""}
+                  {suggestion.last_reps} {slot?.unit === "meters" ? "m" : slot?.unit === "seconds" ? "s" : "reps"}
+                </p>
               </div>
             ) : (
               <div className="flex-1 px-3 py-2 rounded-xl" style={{ background: "var(--surface-2)" }}>
@@ -677,7 +682,7 @@ export default function WorkoutPage() {
                 {effSets(currentPE)}×{currentPE.target_reps_min === currentPE.target_reps_max
                   ? currentPE.target_reps_min
                   : `${currentPE.target_reps_min}–${currentPE.target_reps_max}`}
-                {slot?.unit === "meters" ? " m" : ""}{slot?.per_side ? " /side" : ""}
+                {slot?.unit === "meters" ? " m" : slot?.unit === "seconds" ? " s" : ""}{slot?.per_side ? " /side" : ""}
               </p>
             </div>
           </div>

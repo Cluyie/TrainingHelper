@@ -64,12 +64,12 @@ describe("the week (criteria 1-4, new running frame)", () => {
       "Cable Face Pull", "Cable External Rotation", "Cable Crunch",
     ]);
     expect(names(day("friday"))).toEqual([
-      "Broad Jump", "Barbell Romanian Deadlift", "Smith Hip Thrust", "Step Up",
-      "Cable Leg Curl", "Cable Chest Press", "Half-Kneeling Cable Chop", "Smith Calf Raise",
+      "Broad Jump", "Barbell Romanian Deadlift", "Step Up", "Nordic Hamstring Curl",
+      "Cable Chest Press", "Half-Kneeling Cable Chop", "Smith Calf Raise",
     ]);
     expect(names(day("saturday"))).toEqual([
-      "Cable Chest Press", "Half-Kneeling Cable Pulldown", "Smith Hip Thrust", "Cable Leg Curl",
-      "Suitcase Carry", "Smith Calf Raise", "Half-Kneeling Cable Chop",
+      "Push-Up", "Inverted Row", "Dead Hang", "Single-Leg Romanian Deadlift",
+      "Suitcase Carry", "Pallof Press",
     ]);
   });
 
@@ -78,8 +78,8 @@ describe("the week (criteria 1-4, new running frame)", () => {
     expect(rx("tuesday")).toEqual(["3x4-4", "3x5-8", "3x5-8", "3x8-12", "2x8-12", "2x12-20", "2x12-20", "2x12-15", "3x8-15"]);
     expect(rx("wednesday")).toEqual(["3x3-3", "3x3-5", "3x5-8", "3x6-10", "2x8-10", "2x20-30", "2x8-12"]);
     expect(rx("thursday")).toEqual(["3x4-4", "3x8-12", "3x8-12", "2x6-10", "2x8-12", "2x12-20", "2x12-20", "2x12-15", "2x10-15"]);
-    expect(rx("friday")).toEqual(["3x3-3", "3x6-10", "2x8-12", "2x8-12", "2x10-15", "2x8-12", "2x10-12", "2x10-15"]);
-    expect(rx("saturday")).toEqual(["2x10-15", "2x8-12", "2x10-15", "2x10-15", "2x20-30", "2x12-20", "2x10-12"]);
+    expect(rx("friday")).toEqual(["3x3-3", "3x6-10", "2x8-12", "2x3-6", "2x8-12", "2x10-12", "2x10-15"]);
+    expect(rx("saturday")).toEqual(["3x8-15", "3x8-12", "2x20-45", "2x6-8", "2x20-30", "2x10-10"]);
   });
 
   it("puts Zone 2 after strength on Thursday and Saturday only", () => {
@@ -102,6 +102,23 @@ describe("the week (criteria 1-4, new running frame)", () => {
     expect(sat.slots.some((s) => s.role === "heavy" || s.role === "power")).toBe(false);
     const setsPerDay = PROGRAM.map((d) => d.slots.reduce((n, s) => n + s.sets, 0));
     expect(Math.min(...setsPerDay)).toBe(setsPerDay[4]);
+  });
+
+  it("keeps Saturday from repeating Friday — they are back-to-back", () => {
+    const fri = new Set(names(day("friday")));
+    expect(names(day("saturday")).filter((n) => fri.has(n))).toEqual([]);
+  });
+
+  it("does no leg training on Saturday, two days before the hard run", () => {
+    // The single-leg RDL is a bodyweight balance drill; nothing else loads the legs.
+    const legWork = ["Smith Hip Thrust", "Cable Leg Curl", "Smith Calf Raise", "Nordic Hamstring Curl"];
+    expect(names(day("saturday")).some((n) => legWork.includes(n))).toBe(false);
+    const sat = day("saturday").slots;
+    expect(sat.find((s) => s.exercise === "Single-Leg Romanian Deadlift")?.incrementKg).toBe(0);
+  });
+
+  it("logs the dead hang in seconds", () => {
+    expect(day("saturday").slots.find((s) => s.exercise === "Dead Hang")?.unit).toBe("seconds");
   });
 
   it("contains no strength on Monday or Sunday", () => {
@@ -209,7 +226,8 @@ describe("specific exercises (criteria 11-14, 17-20)", () => {
   const every = allSlots.flatMap(slotNames);
 
   it.each([
-    ["Chest Supported Row"], ["Landmine Press"], ["Cable Leg Curl"],
+    ["Chest Supported Row"], ["Landmine Press"], ["Nordic Hamstring Curl"],
+    ["Push-Up"], ["Inverted Row"], ["Dead Hang"], ["Single-Leg Romanian Deadlift"], ["Pallof Press"],
     ["Countermovement Jump"], ["Broad Jump"],
     ["Trap Bar Farmer Carry"], ["Suitcase Carry"],
     ["Medicine Ball Rotational Throw"], ["Medicine Ball Chest Pass"], ["Medicine Ball Slam"],
@@ -230,7 +248,7 @@ describe("specific exercises (criteria 11-14, 17-20)", () => {
 
   it("adds no kettlebell swing, back extension or direct arm isolation", () => {
     expect(every).not.toContain("Kettlebell Swing");
-    expect(every.some((n) => /curl/i.test(n) && n !== "Cable Leg Curl")).toBe(false);
+    expect(every.some((n) => /curl/i.test(n) && n !== "Nordic Hamstring Curl")).toBe(false);
     expect(every.some((n) => /extension/i.test(n))).toBe(false);
   });
 });
@@ -242,7 +260,7 @@ describe("function checklist (section 19)", () => {
     "hinge": "Trap Bar Deadlift",
     "unilateral knee dominant": "Smith Bulgarian Split Squat",
     "unilateral hip dominant": "Step Up",
-    "knee flexion": "Cable Leg Curl",
+    "knee flexion": "Nordic Hamstring Curl",
     "calf/ankle": "Smith Calf Raise",
     "horizontal push": "Smith Bench Press",
     "incline push": "Smith Incline Bench Press",
@@ -281,7 +299,7 @@ describe("resolving against the catalogue", () => {
   });
 
   it("refuses to build a program with a missing exercise rather than dropping the slot", () => {
-    const without = ALL.filter((e) => e.name !== "Cable Leg Curl");
+    const without = ALL.filter((e) => e.name !== "Nordic Hamstring Curl");
     expect(() => resolveProgram(PROGRAM, without)).toThrow(MissingExercisesError);
   });
 
